@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+
+/* 1. Google Fonts Import */
+@import url("https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&display=swap");
+
+/* 2. Theme Configuration (Colors & Fonts) */
+@theme {
+  --font-sans: "Poppins", sans-serif;
+
+  /* Your Custom Colors */
+  --color-primary: #D4DCFA;
+  --color-secondary: #0063ff;
+}
+
+/* 3. Container Configuration */
+/* In v4, we configure the container using standard CSS in the utilities layer */
+@layer utilities {
+  .container {
+    @apply mx-auto; /* This handles "center: true" */
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  /* Responsive Container Padding */
+  @variant sm {
+    .container { padding-left: 2rem; padding-right: 2rem; }
+  }
+  @variant lg {
+    .container { padding-left: 4rem; padding-right: 4rem; }
+  }
+  @variant xl {
+    .container { padding-left: 5rem; padding-right: 5rem; }
+  }
+  @variant 2xl {
+    .container { padding-left: 6rem; padding-right: 6rem; }
+  }
+}
+
+/* 4. Custom Component Classes */
+@layer components {
+  .primary-btn {
+    @apply bg-primary font-semibold px-6 py-3 rounded-full hover:!scale-110 hover:!shadow-xl duration-300;
+  }
+}
