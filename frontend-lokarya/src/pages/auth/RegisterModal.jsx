@@ -16,7 +16,6 @@ export default function RegisterModal({ isOpen, onClose, onSwitchToLogin }) {
   // --- CUSTOM BACKEND OAUTH LOGIC ---
   const handleGoogleRegister = () => {
     // Redirect to Backend API's Google Endpoint
-    // Matches the route: app.use('/api/auth', authRoutes) + router.get('/google', ...)
     window.location.href = "http://localhost:5000/api/auth/google"; 
   };
 
@@ -25,12 +24,29 @@ export default function RegisterModal({ isOpen, onClose, onSwitchToLogin }) {
     setStatus({ loading: true, error: "", success: "" });
 
     try {
-      await api.post("/auth/register", formData);
-      setStatus({ loading: false, error: "", success: "Account created! Please login." });
+      const response = await api.post("/auth/register", formData);
       
-      setTimeout(() => {
-        onSwitchToLogin();
-      }, 1500);
+      // Backend now sends HttpOnly cookie automatically on register
+      setStatus({ loading: false, error: "", success: "Account created successfully!" });
+      
+      // 1. Save User Info for UI (Cookie is already set by browser)
+      if (response.data) {
+        localStorage.setItem("userInfo", JSON.stringify(response.data));
+
+        // 2. Smart Redirect after short delay
+        setTimeout(() => {
+            const role = response.data.role;
+            if (role === 'super_admin') {
+                window.location.href = "/dashboard/super-admin";
+            } else if (role === 'ngo_admin') {
+                window.location.href = "/dashboard/ngo";
+            } else if (role === 'local_authority') {
+                window.location.href = "/dashboard/authority";
+            } else {
+                window.location.href = "/";
+            }
+        }, 1500);
+      }
 
     } catch (err) {
       setStatus({ loading: false, success: "", error: err.response?.data?.message || "Registration failed." });

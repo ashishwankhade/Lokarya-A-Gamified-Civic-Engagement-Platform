@@ -3,7 +3,7 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Trophy, Target, AlertTriangle, User, 
-  LogOut, ChevronDown, Star, ShieldCheck
+  LogOut, ChevronDown, ShieldCheck
 } from 'lucide-react';
 
 import api from '../../api/axios'; 
@@ -16,7 +16,7 @@ const NavbarUser = () => {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const dropdownRef = useRef(null);
 
-  // --- STATE WITH UPDATED GAMIFICATION DATA ---
+  // --- STATE WITH SAFE DEFAULTS (Prevents Initial Crash) ---
   const [userData, setUserData] = useState({
     name: "User",
     role: "Citizen",
@@ -32,28 +32,37 @@ const NavbarUser = () => {
     const fetchUserData = async () => {
       try {
         const { data } = await api.get('/auth/profile');
-        setUserData({
-          name: data.name,
-          role: data.role,
-          avatar: data.avatar,
-          level: data.level || 1,
-          currentLevelName: data.currentLevel || "Civic Scout",
-          points: data.totalPoints || 0,
-          nextLevelXP: data.nextLevelXP || 200
-        });
+        if (data) {
+          setUserData({
+            name: data.name || "User",
+            role: data.role || "Citizen", // Fallback prevents crash
+            avatar: data.avatar || "",
+            level: data.level || 1,
+            currentLevelName: data.currentLevel || "Civic Scout",
+            points: data.totalPoints || 0,
+            nextLevelXP: data.nextLevelXP || 200
+          });
+          // Update local cache for App.jsx to see
+          localStorage.setItem('userInfo', JSON.stringify(data));
+        }
       } catch (error) {
         console.error("Failed to load navbar user data", error);
       }
     };
     
-    if (localStorage.getItem('token')) {
-      fetchUserData();
-    }
-  }, [location.pathname]); // Refresh when navigating to ensure stats stay updated
+    fetchUserData();
+  }, [location.pathname]); 
 
-  const handleLogout = () => {
-    localStorage.removeItem("token");
-    window.location.href = "/"; 
+  // --- SECURE LOGOUT ---
+  const handleLogout = async () => {
+    try {
+      await api.get('/auth/logout');
+    } catch (error) {
+      console.error("Logout failed", error);
+    } finally {
+      localStorage.removeItem("userInfo"); 
+      window.location.href = "/"; 
+    }
   };
 
   useEffect(() => {
@@ -66,14 +75,17 @@ const NavbarUser = () => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [isProfileOpen]);
 
-  // Derived Values
-  const displayRole = userData.role.replace('_', ' ');
+  // --- CRASH PREVENTION: SAFE DERIVED VALUES ---
+  // The ?. check and || fallback ensures .replace() never runs on null
+  const displayRole = (userData.role || "Citizen").replace('_', ' ');
+  
   const displayAvatar = userData.avatar 
     ? userData.avatar 
     : `https://ui-avatars.com/api/?name=${userData.name}&background=0d9488&color=fff&size=128`;
   
-  // Calculate Progress % for the bar
-  const progressPercent = Math.min((userData.points / userData.nextLevelXP) * 100, 100);
+  // Prevent division by zero crash
+  const safeNextXP = userData.nextLevelXP || 200;
+  const progressPercent = Math.min((userData.points / safeNextXP) * 100, 100);
 
   return (
     <nav className="sticky top-0 w-full bg-white/90 backdrop-blur-md font-sans z-50 border-b border-gray-100 shadow-sm transition-all duration-300">
@@ -111,7 +123,7 @@ const NavbarUser = () => {
                        />
                     </div>
                     <div className="absolute -bottom-1 -right-1 bg-yellow-400 text-[8px] font-black text-slate-900 w-4 h-4 rounded-full flex items-center justify-center border border-white shadow-sm">
-                        {userData.level}
+                       {userData.level}
                     </div>
                 </div>
                 

@@ -12,7 +12,7 @@ const ChatWindow = ({ onClose }) => {
 
 
   // If using Create React App: process.env.REACT_APP_AI_BACKEND_URL
-  const AI_BACKEND_URL = import.meta.env.VITE_AI_BACKEND_URL || 'http://localhost:8000';
+  const AI_BACKEND_URL = 'http://127.0.0.1:8000';
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -113,13 +113,14 @@ const ChatWindow = ({ onClose }) => {
                 className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
               >
                 <div 
-                  className={`max-w-[85%] px-4 py-3 text-sm leading-relaxed shadow-sm relative ${
-                    msg.sender === 'user' 
-                      ? 'bg-[#1E3A8A] text-white rounded-2xl rounded-tr-none' 
-                      : 'bg-white text-gray-800 border border-gray-100 rounded-2xl rounded-tl-none'
-                  }`}
-                >
-                  {msg.text}
+  className={`max-w-[85%] px-4 py-3 text-sm leading-relaxed shadow-sm relative whitespace-pre-wrap ${
+    msg.sender === 'user' 
+      ? 'bg-[#1E3A8A] text-white rounded-2xl rounded-tr-none' 
+      : 'bg-white text-gray-800 border border-gray-100 rounded-2xl rounded-tl-none'
+  }`}
+>
+  {msg.text}
+
                   <span className={`text-[10px] block mt-1 opacity-70 ${msg.sender === 'user' ? 'text-blue-100 text-right' : 'text-gray-400'}`}>
                     {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </span>

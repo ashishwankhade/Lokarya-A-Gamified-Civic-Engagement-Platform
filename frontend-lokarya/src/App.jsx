@@ -13,18 +13,17 @@ import ProfilePage from './pages/ProfilePage';
 import RewardsPage from './pages/RewardsPage';
 
 // --- NEW DASHBOARD IMPORTS ---
-// 1. Import the Layout (The Shell)
 import DashboardLayout from './components/layout/DashboardLayout'; 
-// import other dashboard pages as needed
 import ApprovalsPage from './pages/dashboards/ApprovalsPage';
 import AuthorityInbox from './pages/dashboards/AuthorityInbox';
 import AuthorityMap from './pages/dashboards/AuthorityMap';
-
-// 2. Import the Pages (The Content)
 import SuperAdminDashboard from './pages/dashboards/SuperAdminDashboard';
 import NGODashboard from './pages/dashboards/NGODashboard';
 import AuthorityDashboard from './pages/dashboards/AuthorityDashboard';
 
+// --- NGO SUB-PAGES IMPORTS ---
+import CreateMission from './pages/NgoDash/CreateMission'; 
+import VerifyVolunteers from './pages/NgoDash/VerifyVolunteers'; 
 
 // Existing Layout for Regular Users
 const MainLayout = ({ isAuthenticated }) => {
@@ -39,14 +38,26 @@ const MainLayout = ({ isAuthenticated }) => {
 };
 
 const App = () => {
-  // Auth Check
-  const [isAuthenticated] = useState(!!localStorage.getItem("token"));
-  const userRole = JSON.parse(localStorage.getItem("userInfo") || '{}').role;
+  // 1. UPDATED AUTH CHECK:
+  // We now check for 'userInfo' because the 'token' is hidden in an HttpOnly cookie.
+  const [isAuthenticated] = useState(!!localStorage.getItem("userInfo"));
+  
+  // 2. SAFE ROLE PARSING:
+  // Prevents app crash if localStorage data is corrupted
+  let userRole = 'user';
+  try {
+    const storedUser = localStorage.getItem("userInfo");
+    if (storedUser) {
+      userRole = JSON.parse(storedUser).role;
+    }
+  } catch (error) {
+    console.error("Error parsing user info:", error);
+    localStorage.removeItem("userInfo"); // Clean up bad data
+  }
 
   return (
     <Router>
       <Routes>
-
         {/* --- SECTION 1: PUBLIC / USER WEBSITE --- */}
         <Route element={<MainLayout isAuthenticated={isAuthenticated} />}>
            <Route path="/" element={<LandingPage />} />
@@ -57,21 +68,17 @@ const App = () => {
         </Route>
 
         {/* --- SECTION 2: ADMIN DASHBOARDS --- */}
-        {/* WE USE NESTED ROUTES HERE so the Sidebar stays visible */}
         
         {/* A. Super Admin Routes */}
         <Route 
           path="/dashboard/super-admin" 
           element={
             isAuthenticated && userRole === 'super_admin' 
-              ? <DashboardLayout role="super_admin" />  // <--- Render Layout First
+              ? <DashboardLayout role="super_admin" /> 
               : <Navigate to="/" />
           } 
         >
-           {/* The actual dashboard page renders inside the Layout's <Outlet> */}
            <Route index element={<SuperAdminDashboard />} />
-           
-           {/* Future sub-pages can go here, e.g.: */}
            <Route path="approvals" element={<ApprovalsPage />} />
         </Route>
 
@@ -85,6 +92,9 @@ const App = () => {
           } 
         >
            <Route index element={<NGODashboard />} />
+           <Route path="create" element={<CreateMission />} />
+           <Route path="edit/:id" element={<CreateMission />} />
+           <Route path="verify" element={<VerifyVolunteers />} /> 
         </Route>
 
         {/* C. Authority Routes */}
@@ -97,8 +107,8 @@ const App = () => {
           } 
         >
            <Route index element={<AuthorityDashboard />} />
-            <Route path="inbox" element={<AuthorityInbox />} />
-            <Route path="map" element={<AuthorityMap />} />
+           <Route path="inbox" element={<AuthorityInbox />} />
+           <Route path="map" element={<AuthorityMap />} />
         </Route>
 
       </Routes>

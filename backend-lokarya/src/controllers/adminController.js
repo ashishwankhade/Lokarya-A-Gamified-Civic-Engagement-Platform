@@ -1,4 +1,4 @@
-import  asyncHandler  from '../utils/asyncHandler.js';
+import asyncHandler from '../utils/asyncHandler.js';
 import User from '../models/User.js';
 import { sendNotification } from '../utils/notificationSystem.js';
 
@@ -67,9 +67,19 @@ const createUserByAdmin = asyncHandler(async (req, res) => {
     password,
     role,
     isVerified: true, // Auto-verified since Admin created it
+    totalPoints: 0,   // Ensure defaults are set even for admin-created users
+    lifetimePoints: 0,
+    level: 1,
+    currentLevel: 'Civic Scout',
+    nextLevelXP: 200,
+    badges: [],
+    avatar: "", 
+    location: ""
   });
 
   if (user) {
+    // SECURITY NOTE: We do NOT send a token/cookie here. 
+    // The Admin is creating the user, not logging in as them.
     res.status(201).json({
       _id: user._id,
       name: user.name,
@@ -83,19 +93,14 @@ const createUserByAdmin = asyncHandler(async (req, res) => {
   }
 });
 
-// ------------------------------------------------------------------
-// NEW FUNCTION: Fetch Officers for Assignment
-// ------------------------------------------------------------------
-
 // @desc    Get list of officers/authorities for assignment dropdown
 // @route   GET /api/admin/officers
 const getOfficers = asyncHandler(async (req, res) => {
   // Fetch users who are Authorities or NGO Admins (people who can do work)
-  // You can customize this filter if you have a specific 'field_officer' role
   const officers = await User.find({ 
     role: { $in: ['local_authority', 'ngo_admin'] },
     isVerified: true 
-  }).select('name email role _id image');
+  }).select('name email role _id avatar'); // Ensure 'avatar' is selected if your frontend uses it
   
   res.json(officers);
 });
@@ -105,5 +110,5 @@ export {
   approveUser, 
   rejectUser, 
   createUserByAdmin,
-  getOfficers // <--- Export the new function
+  getOfficers 
 };

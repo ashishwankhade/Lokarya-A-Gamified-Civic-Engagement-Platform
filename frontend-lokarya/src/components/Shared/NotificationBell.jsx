@@ -6,24 +6,33 @@ import api from '../../api/axios';
 const NotificationBell = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
-  const [loading, setLoading] = useState(false);
   const dropdownRef = useRef(null);
 
-  // Derive unread count from the notifications array
-  const unreadCount = notifications.filter(n => !n.isRead).length;
+  // Derive unread count safely
+  const unreadCount = Array.isArray(notifications) 
+    ? notifications.filter(n => !n.isRead).length 
+    : 0;
 
-  // 1. Fetch Notifications
+  // 1. Fetch Notifications (Crash-Proof Version)
   const fetchNotifications = async () => {
     try {
       const { data } = await api.get('/notifications');
-      // Backend returns: [{...}, {...}]
-      setNotifications(data);
+      
+      // FIX: Ensure data is actually an array before setting state
+      if (Array.isArray(data)) {
+        setNotifications(data);
+      } else {
+        console.warn("Notifications data is not an array:", data);
+        setNotifications([]); 
+      }
     } catch (error) {
       console.error("Failed to fetch notifications", error);
+      // Don't setNotifications([]) here if you want to keep old data on error, 
+      // otherwise set it to [] to clear.
     }
   };
 
-  // 2. Mark Single Notification as Read (When clicked)
+  // 2. Mark Single Notification as Read
   const markSingleAsRead = async (id) => {
     try {
       await api.put(`/notifications/${id}/read`);
@@ -37,11 +46,10 @@ const NotificationBell = () => {
 
   // 3. Mark ALL as read
   const handleMarkAllRead = async (e) => {
-    e.stopPropagation(); // Prevent dropdown from closing
+    e.stopPropagation(); 
     if (unreadCount > 0) {
       try {
         await api.put('/notifications/read-all');
-        // Optimistically update local state
         setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
       } catch (error) {
         console.error("Failed to mark all read", error);

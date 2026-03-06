@@ -26,51 +26,45 @@ export default function LoginModal({ isOpen, onClose }) {
     setStatus({ loading: true, error: "", success: "" });
 
     try {
+      // The backend sets the HttpOnly cookie automatically here
       const response = await api.post("/auth/login", formData);
+      
       setStatus({ loading: false, error: "", success: "Login Successful!" });
 
-      // 1. Get Token safely
-      const token =
-        response.data.token ||
-        response.data.accessToken ||
-        response.data.data?.token ||
-        response.data.user?.token;
-
-      if (token) {
-        // 2. Save Token AND User Info (Critical for Dashboards)
-        localStorage.setItem("token", token);
-        
-        // We save the whole response data (which contains role, name, email)
+      // 1. Save User Info (But NOT the token - that's in the cookie now)
+      if (response.data) {
         localStorage.setItem("userInfo", JSON.stringify(response.data));
 
-        // 3. Smart Redirection based on Role
-        const role = response.data.role; // Backend sends "super_admin", "ngo_admin", etc.
-        
-        console.log("Login Success. Role detected:", role); // Debugging log
+        // 2. Smart Redirection based on Role
+        const role = response.data.role; // "super_admin", "ngo_admin", etc.
+        console.log("Login Success. Role detected:", role); 
 
-        if (role === 'super_admin') {
-          window.location.href = "/dashboard/super-admin";
-        } else if (role === 'ngo_admin') {
-          window.location.href = "/dashboard/ngo";
-        } else if (role === 'local_authority') {
-          window.location.href = "/dashboard/authority";
-        } else {
-          // Regular users go to Home
-          window.location.href = "/";
-        }
-
-      } else {
-        setStatus({
-          loading: false,
-          success: "",
-          error: "Server did not send a token.",
-        });
-      }
+        // Slight delay to show success message before redirect
+        setTimeout(() => {
+            if (role === 'super_admin') {
+              window.location.href = "/dashboard/super-admin";
+            } else if (role === 'ngo_admin') {
+              window.location.href = "/dashboard/ngo";
+            } else if (role === 'local_authority') {
+              window.location.href = "/dashboard/authority";
+            } else {
+              // Regular users go to Home
+              window.location.href = "/";
+            }
+        }, 500);
+      } 
     } catch (err) {
+      console.error("Login Error:", err);
       const errorMsg =
         err.response?.data?.message || "Invalid email or password.";
       setStatus({ loading: false, success: "", error: errorMsg });
     }
+  };
+
+  // Google OAuth Login Handler
+  const handleGoogleLogin = () => {
+     // Redirects the browser to the backend Google Auth endpoint
+     window.location.href = "http://localhost:5000/api/auth/google";
   };
 
   // Prevent closing when clicking inside the modal
@@ -186,7 +180,7 @@ export default function LoginModal({ isOpen, onClose }) {
 
                 {/* Remember & Forgot */}
                 <div className="flex items-center justify-between">
-                   <div className="flex items-center">
+                    <div className="flex items-center">
                     <input
                       id="remember-me"
                       name="remember-me"
@@ -226,6 +220,7 @@ export default function LoginModal({ isOpen, onClose }) {
               <div className="mt-4">
                 <button
                   type="button"
+                  onClick={handleGoogleLogin}
                   className="w-full flex items-center justify-center gap-3 bg-white border border-gray-200 text-gray-700 font-bold py-3 rounded-xl hover:bg-gray-50 transition-all duration-200 cursor-pointer"
                 >
                   <img

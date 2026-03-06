@@ -10,26 +10,30 @@ class GamificationService {
       if (!user) throw new Error('User not found');
 
       const oldLevelName = user.currentLevel;
+      // CRITICAL: Ensure points are treated as math, not strings
+      const numericPoints = Number(points); 
 
       // 1. Update balances
-      user.totalPoints += points;     // Spendable wallet
-      user.lifetimePoints += points;  // Permanent rank (Never decreases)
+      user.totalPoints += numericPoints;     // Spendable wallet
+      user.lifetimePoints += numericPoints;  // Permanent rank (Never decreases)
       
       // 2. Log History
       user.pointHistory.push({
         reason,
-        pointsChanged: points,
+        pointsChanged: numericPoints,
         date: new Date()
       });
 
       // 3. Calculate Rank based on LIFETIME points
       const levelData = this.calculateLevel(user.lifetimePoints);
+      const leveledUp = oldLevelName !== levelData.name;
+
       user.level = levelData.level;
       user.currentLevel = levelData.name;
-      user.nextLevelXP = levelData.next; // The threshold for the next rank
+      user.nextLevelXP = levelData.next; // From the config
 
       // Notify on Rank Up
-      if (oldLevelName !== user.currentLevel) {
+      if (leveledUp) {
         await sendNotification(
           user._id, 
           `Rank Up! You are now a ${user.currentLevel}!`, 
@@ -41,15 +45,28 @@ class GamificationService {
       const newBadges = this.checkBadges(user);
       if (newBadges.length > 0) {
         user.badges.push(...newBadges);
-        await sendNotification(
-          user._id, 
-          `New Badge Unlocked: ${newBadges[0].name} ${newBadges[0].icon}`, 
-          'success'
-        );
+        
+        // Loop through all newly earned badges (in case they earned multiple at once)
+        for (const badge of newBadges) {
+          await sendNotification(
+            user._id, 
+            `New Badge Unlocked: ${badge.name} ${badge.icon}`, 
+            'success'
+          );
+        }
       }
 
       await user.save();
-      return { success: true, user };
+      
+      // 5. Return the exact payload expected by the Activity Controller
+      return { 
+        success: true, 
+        pointsAwarded: numericPoints,
+        newTotal: user.totalPoints,
+        leveledUp: leveledUp,
+        currentLevel: user.currentLevel,
+        user 
+      };
     } catch (error) {
       console.error("Award Error:", error);
       return { success: false, error: error.message };
@@ -61,16 +78,18 @@ class GamificationService {
       const user = await User.findById(userId);
       if (!user) throw new Error('User not found');
       
-      if (user.totalPoints < cost) {
+      const numericCost = Number(cost);
+
+      if (user.totalPoints < numericCost) {
         throw new Error('Insufficient spendable points balance');
       }
 
       // Deduct only from spendable wallet
-      user.totalPoints -= cost;
+      user.totalPoints -= numericCost;
 
       user.pointHistory.push({
         reason: `Redeemed: ${itemName}`,
-        pointsChanged: -cost,
+        pointsChanged: -numericCost,
         date: new Date()
       });
 
@@ -87,20 +106,16 @@ class GamificationService {
    * SEAMLESS LOGIC: Finds the current level and the threshold for the next one
    */
   calculateLevel(points) {
-    // Sort levels high to low
+    // Sort levels high to low to find the highest threshold passed
     const sortedLevels = [...LEVELS].sort((a, b) => b.min - a.min);
     
-    // Find the current level object
+    // Find the current level object based on lifetime points
     const currentLevelObj = sortedLevels.find(l => points >= l.min) || LEVELS[0];
-    
-    // Find the next level object to get the next threshold
-    const nextLevelObj = LEVELS.find(l => l.level === currentLevelObj.level + 1);
 
     return {
       level: currentLevelObj.level,
       name: currentLevelObj.name,
-      // If there is no next level (max reached), use a high number or current min
-      next: nextLevelObj ? nextLevelObj.min : currentLevelObj.min 
+      next: currentLevelObj.next // Use the 'next' value directly from config
     };
   }
 
