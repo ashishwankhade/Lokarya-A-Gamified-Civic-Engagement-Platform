@@ -17,7 +17,7 @@ import ActivityPage  from './pages/ActivityPage';
 import RewardsPage   from './pages/RewardsPage';
 import ProfilePage   from './pages/ProfilePage';
 import QrScanPage    from './pages/QrScanPage';
-import XpToastLayer  from './components/shared/XpToastLayer';
+import XpToastLayer  from './components/Shared/XpToastLayer';
 
 import AuthorityDashboard from './dashboards/authority/AuthorityDashboard';
 import NGODashboard       from './dashboards/ngo/NGODashboard';
