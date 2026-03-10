@@ -18,6 +18,8 @@ import RewardsPage   from './pages/RewardsPage';
 import ProfilePage   from './pages/ProfilePage';
 import QrScanPage    from './pages/QrScanPage';
 import XpToastLayer  from './components/Shared/XpToastLayer';
+import OAuthCallbackPage from './components/OAuthCallbackPage';
+
 
 import AuthorityDashboard from './dashboards/authority/AuthorityDashboard';
 import NGODashboard       from './dashboards/ngo/NGODashboard';
@@ -62,6 +64,8 @@ const App = () => (
             <Route path="/rewards"      element={<RewardsPage />}   />
             <Route path="/scan-qr"      element={<QrScanPage />}    />
             <Route path="/worker/upload" element={<WorkerUploadPage />} />
+            <Route path="/oauth-callback" element={<OAuthCallbackPage />} />
+
 
             <Route path="/profile" element={
               <ProtectedRoute><ProfilePage /></ProtectedRoute>

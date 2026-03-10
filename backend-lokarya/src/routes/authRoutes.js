@@ -55,38 +55,91 @@ router.get(
 
 router.get(
   '/google/callback',
-  passport.authenticate('google', { session: false, failureRedirect: '/login?error=oauth_failed' }),
+  passport.authenticate('google', { session: false, failureRedirect: `${process.env.FRONTEND_URL}/login?error=oauth_failed` }),
   async (req, res) => {
-    const user = req.user;
-    const isProd = process.env.NODE_ENV === 'production';
+    try {
+      const user = req.user;
+      const crypto = await import('crypto');
 
-    const accessToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
-      expiresIn: '15m',
+      // Generate a short-lived one-time token (valid 60 seconds)
+      const onetimeToken = crypto.default.randomBytes(20).toString('hex');
+      user.oauthToken        = onetimeToken;
+      user.oauthTokenExpiry  = new Date(Date.now() + 60 * 1000);
+      await user.save({ validateBeforeSave: false });
+
+      // Redirect frontend with token in URL — no cookies here
+      res.redirect(`${process.env.FRONTEND_URL}/oauth-callback?token=${onetimeToken}`);
+    } catch (err) {
+      console.error('[OAuth] callback error:', err);
+      res.redirect(`${process.env.FRONTEND_URL}/login?error=oauth_failed`);
+    }
+  }
+);
+
+router.post('/oauth-exchange', async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ success: false, message: 'Token required' });
+
+    const User = (await import('../models/User.js')).default;
+
+    const user = await User.findOne({
+      oauthToken:       token,
+      oauthTokenExpiry: { $gt: new Date() },
     });
 
-    // FIX: OAuth login now also stores refresh token in DB (same as regular login)
-    const crypto = await import('crypto');
-    const plainRefreshToken = crypto.randomBytes(40).toString('hex');
+    if (!user) {
+      return res.status(401).json({ success: false, message: 'Invalid or expired OAuth token' });
+    }
+
+    // Clear one-time token
+    user.oauthToken        = undefined;
+    user.oauthTokenExpiry  = undefined;
+
+    // Store refresh token
+    const crypto           = await import('crypto');
+    const plainRefreshToken = crypto.default.randomBytes(40).toString('hex');
     await user.setRefreshToken(plainRefreshToken);
     await user.save({ validateBeforeSave: false });
 
-    res.cookie('token', accessToken, {
+    // Set cookies — this works because it's a direct API call not a redirect
+    res.cookie('token', jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '15m' }), {
       expires:  new Date(Date.now() + 15 * 60 * 1000),
       httpOnly: true,
-      secure:   isProd,
-      sameSite: isProd ? 'strict' : 'lax',
+      secure:   true,
+      sameSite: 'none',
     });
 
     res.cookie('refreshToken', plainRefreshToken, {
       expires:  new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
       httpOnly: true,
-      secure:   isProd,
-      sameSite: isProd ? 'strict' : 'lax',
+      secure:   true,
+      sameSite: 'none',
       path:     '/api/auth/refresh',
     });
 
-    res.redirect(process.env.FRONTEND_URL || 'http://localhost:5173');
+    user.password = undefined;
+
+    res.status(200).json({
+      success:      true,
+      _id:          user._id,
+      name:         user.name,
+      email:        user.email,
+      role:         user.role,
+      avatar:       user.avatar       || '',
+      location:     user.location     || '',
+      isVerified:   user.isVerified,
+      xp:           user.xp           || 0,
+      level:        user.level        || 1,
+      currentLevel: user.currentLevel || 'Civic Scout',
+      totalPoints:  user.totalPoints  || 0,
+      nextLevelXP:  user.nextLevelXP  || 200,
+    });
+
+  } catch (err) {
+    console.error('[OAuth] exchange error:', err);
+    res.status(500).json({ success: false, message: 'OAuth exchange failed' });
   }
-);
+});
 
 export default router;
