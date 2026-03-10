@@ -31,7 +31,7 @@ passport.use(
           name: profile.displayName,
           email: profile.emails[0].value,
           password: randomPassword, 
-          role: 'user', // Default role
+          role: 'citizen', // Default role
         });
 
         return done(null, user);

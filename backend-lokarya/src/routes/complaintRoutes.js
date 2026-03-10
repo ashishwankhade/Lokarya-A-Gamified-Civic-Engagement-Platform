@@ -1,80 +1,40 @@
+// backend-lokarya/src/routes/complaintRoutes.js
 import express from 'express';
-import rateLimit from 'express-rate-limit';
-import upload from '../middlewares/uploadMiddleware.js'; 
 import {
   createComplaint,
-  getMyComplaints,
-  getAllComplaints,
+  assignOfficer,
+  assignWorker,
+  workerWebhook,
+  magicUpload,
+  resolveComplaint,
+  rateComplaint,
   updateComplaintStatus,
+  getMyComplaints,
+  getComplaints,        // ← was getAllComplaints, now getComplaints
+  getComplaintById,     // ← new
 } from '../controllers/complaintController.js';
 import { protect, authorize } from '../middlewares/authMiddleware.js';
+import multer from 'multer';
 
 const router = express.Router();
+const upload = multer({ dest: 'uploads/' });
 
-// Rate Limiter
-const createComplaintLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, 
-  max: 5, 
-  message: { status: 429, message: "Too many complaints. Please try again in an hour." },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
+// ── Public ────────────────────────────────────────────────────────────────────
+router.post('/worker-webhook',              workerWebhook);
+router.post('/magic-upload', upload.single('photo'), magicUpload);
 
-// @desc    Create Complaint (Citizen)
-router.route('/')
-  .post(protect, createComplaintLimiter, upload.single('image'), createComplaint); 
+// ── Citizen ───────────────────────────────────────────────────────────────────
+router.post('/', protect, upload.single('image'), createComplaint);
+router.get('/my',         protect, getMyComplaints);          // ← must be before /:id
+router.patch('/:id/rate', protect, rateComplaint);
 
-// @desc    Get My Complaints (Citizen)
-router.route('/my').get(protect, getMyComplaints);
+// ── Authority / Admin ─────────────────────────────────────────────────────────
+router.get('/',    protect, authorize('local_authority', 'super_admin'), getComplaints);
+router.get('/:id', protect, authorize('local_authority', 'super_admin'), getComplaintById);
 
-// @desc    Get All Complaints (Authority/Admin)
-router.route('/')
-  .get(protect, getAllComplaints);
-
-// @desc    Update Status / Resolve (Authority)
-// @route   PUT /api/complaints/:id/status
-router.route('/:id/status').put(
-  // 1. Log Request Arrival
-  (req, res, next) => {
-    console.log("------------------------------------------");
-    console.log(`[ROUTE DEBUG] PUT Request received for ID: ${req.params.id}`);
-    next();
-  },
-
-  // 2. Auth Check
-  protect,
-  (req, res, next) => {
-    console.log(`[ROUTE DEBUG] Auth Passed. User: ${req.user?._id}, Role: ${req.user?.role}`);
-    next();
-  },
-
-  // 3. Role Check
-  authorize('local_authority', 'super_admin'), 
-  (req, res, next) => {
-    console.log("[ROUTE DEBUG] Authorization Passed. Starting File Upload...");
-    next();
-  },
-
-  // 4. File Upload (Wrapped to catch errors)
-  (req, res, next) => {
-    upload.single('image')(req, res, (err) => {
-      if (err) {
-        // Log the specific Multer error
-        console.error("❌ [ROUTE DEBUG] Multer/Upload Error:", err.message);
-        return res.status(400).json({ message: "Upload Failed", error: err });
-        // return res.status(400).json({ message: `Upload Failed: ${err.message}` });
-      }
-      
-      console.log(`[ROUTE DEBUG] Upload Middleware Passed.`);
-      console.log(`   - File Present: ${!!req.file}`);
-      console.log(`   - Body Keys: ${Object.keys(req.body)}`);
-      
-      next(); // Proceed to controller
-    });
-  },
-
-  // 5. Final Controller Call
-  updateComplaintStatus
-);
+router.patch('/:id/assign-officer', protect, authorize('local_authority', 'super_admin'), assignOfficer);
+router.patch('/:id/assign-worker',  protect, authorize('local_authority', 'super_admin'), assignWorker);
+router.patch('/:id/resolve',        protect, authorize('local_authority', 'super_admin'), resolveComplaint);
+router.patch('/:id/status',         protect, authorize('local_authority', 'super_admin'), updateComplaintStatus);
 
 export default router;

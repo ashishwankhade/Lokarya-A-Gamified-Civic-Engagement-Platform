@@ -1,119 +1,98 @@
-import React, { useState } from 'react'; 
-import { BrowserRouter as Router, Routes, Route, Outlet, Navigate } from "react-router-dom";
+// src/App.jsx
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import { ToastContainer } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 
-// --- EXISTING IMPORTS ---
-import Navbar from './components/Navbar/Navbar';
-import NavbarUser from './components/Navbar/NavbarUser';
-import Footer from './components/Footer/Footer';
-import LandingPage from './pages/LandingPage';
+import { AuthProvider, useAuth } from './context/AuthContext';   // ← useAuth added
+import ProtectedRoute from './components/routing/ProtectedRoute';
+
+import Navbar     from './components/Navbar/Navbar';
+import Footer     from './components/Footer/Footer';
 import ChatBubble from './components/ChatBot/ChatBubble';
+
+import LandingPage   from './pages/LandingPage';
 import ComplaintPage from './pages/ComplaintPage';
-import ActivityPage from './pages/ActivityPage';
-import ProfilePage from './pages/ProfilePage';
-import RewardsPage from './pages/RewardsPage';
+import ActivityPage  from './pages/ActivityPage';
+import RewardsPage   from './pages/RewardsPage';
+import ProfilePage   from './pages/ProfilePage';
+import QrScanPage    from './pages/QrScanPage';
+import XpToastLayer  from './components/shared/XpToastLayer';
 
-// --- NEW DASHBOARD IMPORTS ---
-import DashboardLayout from './components/layout/DashboardLayout'; 
-import ApprovalsPage from './pages/dashboards/ApprovalsPage';
-import AuthorityInbox from './pages/dashboards/AuthorityInbox';
-import AuthorityMap from './pages/dashboards/AuthorityMap';
-import SuperAdminDashboard from './pages/dashboards/SuperAdminDashboard';
-import NGODashboard from './pages/dashboards/NGODashboard';
-import AuthorityDashboard from './pages/dashboards/AuthorityDashboard';
+import AuthorityDashboard from './dashboards/authority/AuthorityDashboard';
+import NGODashboard       from './dashboards/ngo/NGODashboard';
+import AdminDashboard     from './dashboards/admin/AdminDashboard';
+import WorkerUploadPage   from './pages/WorkerUploadPage';
 
-// --- NGO SUB-PAGES IMPORTS ---
-import CreateMission from './pages/NgoDash/CreateMission'; 
-import VerifyVolunteers from './pages/NgoDash/VerifyVolunteers'; 
 
-// Existing Layout for Regular Users
-const MainLayout = ({ isAuthenticated }) => {
+// ── Navbar + Footer shell for public pages ───────────────────────────────────
+const MainLayout = () => (
+  <>
+    <Navbar />
+    <Outlet />
+    <ChatBubble />
+    <Footer />
+  </>
+);
+
+// ── XP toast layer — must live INSIDE <AuthProvider> so useAuth() works ──────
+const AppShell = ({ children }) => {
+  const { xpToasts, dismissToast } = useAuth();
   return (
     <>
-      {isAuthenticated ? <NavbarUser /> : <Navbar />}
-      <Outlet /> 
-      <ChatBubble />
-      <Footer />
+      {children}
+      <XpToastLayer toasts={xpToasts} onDismiss={dismissToast} />
     </>
   );
 };
 
-const App = () => {
-  // 1. UPDATED AUTH CHECK:
-  // We now check for 'userInfo' because the 'token' is hidden in an HttpOnly cookie.
-  const [isAuthenticated] = useState(!!localStorage.getItem("userInfo"));
-  
-  // 2. SAFE ROLE PARSING:
-  // Prevents app crash if localStorage data is corrupted
-  let userRole = 'user';
-  try {
-    const storedUser = localStorage.getItem("userInfo");
-    if (storedUser) {
-      userRole = JSON.parse(storedUser).role;
-    }
-  } catch (error) {
-    console.error("Error parsing user info:", error);
-    localStorage.removeItem("userInfo"); // Clean up bad data
-  }
+// ── Root — AuthProvider wraps AppShell so context is available ───────────────
+const App = () => (
+  <Router>
+    <AuthProvider>
+      <AppShell>
+        <ToastContainer position="top-right" autoClose={3000} />
+        <Routes>
 
-  return (
-    <Router>
-      <Routes>
-        {/* --- SECTION 1: PUBLIC / USER WEBSITE --- */}
-        <Route element={<MainLayout isAuthenticated={isAuthenticated} />}>
-           <Route path="/" element={<LandingPage />} />
-           <Route path="/report-issue" element={<ComplaintPage />} />
-           <Route path="/activities" element={<ActivityPage />} />
-           <Route path="/profile" element={<ProfilePage />} />
-           <Route path="/rewards" element={<RewardsPage />} />
-        </Route>
+          {/* ── Public pages (Navbar + Footer) ─────────────────────────── */}
+          <Route element={<MainLayout />}>
+            <Route path="/"             element={<LandingPage />}   />
+            <Route path="/report-issue" element={<ComplaintPage />} />
+            <Route path="/activities"   element={<ActivityPage />}  />
+            <Route path="/rewards"      element={<RewardsPage />}   />
+            <Route path="/scan-qr"      element={<QrScanPage />}    />
+            <Route path="/worker/upload" element={<WorkerUploadPage />} />
 
-        {/* --- SECTION 2: ADMIN DASHBOARDS --- */}
-        
-        {/* A. Super Admin Routes */}
-        <Route 
-          path="/dashboard/super-admin" 
-          element={
-            isAuthenticated && userRole === 'super_admin' 
-              ? <DashboardLayout role="super_admin" /> 
-              : <Navigate to="/" />
-          } 
-        >
-           <Route index element={<SuperAdminDashboard />} />
-           <Route path="approvals" element={<ApprovalsPage />} />
-        </Route>
+            <Route path="/profile" element={
+              <ProtectedRoute><ProfilePage /></ProtectedRoute>
+            } />
+          </Route>
 
-        {/* B. NGO Admin Routes */}
-        <Route 
-          path="/dashboard/ngo" 
-          element={
-            isAuthenticated && userRole === 'ngo_admin' 
-              ? <DashboardLayout role="ngo_admin" /> 
-              : <Navigate to="/" />
-          } 
-        >
-           <Route index element={<NGODashboard />} />
-           <Route path="create" element={<CreateMission />} />
-           <Route path="edit/:id" element={<CreateMission />} />
-           <Route path="verify" element={<VerifyVolunteers />} /> 
-        </Route>
+          {/* ── Dashboards (full-screen, no MainLayout) ────────────────── */}
+          <Route path="/dashboard/authority" element={
+            <ProtectedRoute roles={['local_authority']}>
+              <AuthorityDashboard />
+            </ProtectedRoute>
+          } />
 
-        {/* C. Authority Routes */}
-        <Route 
-          path="/dashboard/authority" 
-          element={
-            isAuthenticated && userRole === 'local_authority' 
-              ? <DashboardLayout role="local_authority" /> 
-              : <Navigate to="/" />
-          } 
-        >
-           <Route index element={<AuthorityDashboard />} />
-           <Route path="inbox" element={<AuthorityInbox />} />
-           <Route path="map" element={<AuthorityMap />} />
-        </Route>
+          <Route path="/dashboard/ngo" element={
+            <ProtectedRoute roles={['ngo_admin']}>
+              <NGODashboard />
+            </ProtectedRoute>
+          } />
 
-      </Routes>
-    </Router>
-  );
-};
+          <Route path="/dashboard/admin" element={
+            <ProtectedRoute roles={['super_admin']}>
+              <AdminDashboard />
+            </ProtectedRoute>
+          } />
+
+          <Route path="*" element={<Navigate to="/" replace />} />
+
+        </Routes>
+      </AppShell>
+    </AuthProvider>
+  </Router>
+);
 
 export default App;

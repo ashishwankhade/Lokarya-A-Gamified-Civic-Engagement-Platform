@@ -1,21 +1,38 @@
+/**
+ * server.js  —  Lokarya Backend entry point
+ */
+
 import dotenv from 'dotenv';
-// Load env vars immediately so imports below can use them if needed
-dotenv.config(); 
+dotenv.config();
 
-import app from './app.js';
+import app       from './app.js';
 import connectDB from './config/db.js';
+import { seedXpRules } from './models/XpRule.js';
+import { seedBadges }  from './models/Badge.js';   // ← ADDED
 
-// Debugging: Remove this in production
+// Debugging — remove in production
 if (process.env.NODE_ENV !== 'production') {
-  console.log("Mongo URI loaded:", !!process.env.MONGO_URI); 
+  console.log('Mongo URI loaded:', !!process.env.MONGO_URI);
 }
 
 const PORT = process.env.PORT || 5000;
 
-// 1. Connect to Database
-connectDB();
+const start = async () => {
+  try {
+    await connectDB();
 
-// 2. Start the Server
-app.listen(PORT, () => {
-  console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
-});
+    await seedXpRules();   // seeds 11 XP rules on first boot
+    await seedBadges();    // ← ADDED — seeds 15 badges on first boot
+
+    app.listen(PORT, () => {
+      console.log(
+        `✅  Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`
+      );
+    });
+  } catch (err) {
+    console.error('❌  Startup failed:', err.message);
+    process.exit(1);
+  }
+};
+
+start();
