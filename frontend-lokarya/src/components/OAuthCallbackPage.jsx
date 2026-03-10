@@ -6,7 +6,7 @@ import api from '../api/axios';
 const OAuthCallbackPage = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { setUser } = useAuth();
+  const { login } = useAuth(); 
 
   useEffect(() => {
     const token = searchParams.get('token');
@@ -18,8 +18,8 @@ const OAuthCallbackPage = () => {
 
     api.post('/auth/oauth-exchange', { token })
       .then(res => {
-        setUser(res.data);
-        navigate('/');
+        login(res.data);          // ✅ set user in AuthContext
+        window.location.href = '/'; // ✅ full reload to sync all state
       })
       .catch(() => {
         navigate('/login?error=oauth_failed');
