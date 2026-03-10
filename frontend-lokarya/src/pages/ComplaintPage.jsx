@@ -31,7 +31,7 @@ import {
   ImpactStatsSection, CTABanner, CommunityStrip,
   LoadingState, EmptyState, LockedState,
   StatPill, PageHeroShell,
-} from '../components/shared/lokarya-ui';
+} from '../components/Shared/lokarya-ui';
 
 /* ─── Complaint-specific timeline config ────────────────────────── */
 const STEP_COLOR = {
