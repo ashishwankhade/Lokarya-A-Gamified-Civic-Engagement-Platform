@@ -19,13 +19,11 @@ const sendTokenResponse = async (user, statusCode, res) => {
   await user.setRefreshToken(plainRefreshToken);
   await user.save({ validateBeforeSave: false });
 
-  // FIX: sameSite must be 'none' for cross-origin (Vercel → Render)
-  // sameSite: 'strict' or 'lax' blocks cookies across different domains
   res.cookie('token', accessToken, {
     expires:  new Date(Date.now() + 15 * 60 * 1000),
     httpOnly: true,
-    secure:   true,       // required when sameSite is 'none'
-    sameSite: 'none',     // allows cross-origin cookie sending
+    secure:   true,
+    sameSite: 'none',
   });
 
   res.cookie('refreshToken', plainRefreshToken, {
@@ -46,6 +44,7 @@ const sendTokenResponse = async (user, statusCode, res) => {
     role:         user.role,
     avatar:       user.avatar       || '',
     location:     user.location     || '',
+    phone:        user.phone        || '',
     isVerified:   user.isVerified,
     xp:           user.xp           || 0,
     level:        user.level        || 1,
@@ -82,6 +81,7 @@ const registerUser = asyncHandler(async (req, res) => {
     badges:         [],
     avatar:         '',
     location:       '',
+    phone:          null,
   });
 
   if (!user) {
@@ -89,7 +89,6 @@ const registerUser = asyncHandler(async (req, res) => {
     throw new Error('Invalid user data');
   }
 
-  // Award first_login badge (fire-and-forget — never blocks response)
   awardSpecialBadge(user._id, 'first_login').catch(err =>
     console.error('[Badge] first_login award failed:', err.message)
   );
@@ -134,7 +133,6 @@ const logoutUser = asyncHandler(async (req, res) => {
     }
   }
 
-  // FIX: match same sameSite/secure settings used when setting cookies
   const cookieDefaults = {
     httpOnly: true,
     secure:   true,
@@ -173,7 +171,6 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
     expiresIn: '15m',
   });
 
-  // FIX: match same sameSite/secure settings
   res.cookie('token', newAccessToken, {
     expires:  new Date(Date.now() + 15 * 60 * 1000),
     httpOnly: true,
@@ -186,7 +183,7 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
 
 // ─── GET ME ───────────────────────────────────────────────────────────────────
 const getMe = asyncHandler(async (req, res) => {
-  const user    = await User.findById(req.user._id).select('xp');
+  const user    = await User.findById(req.user._id).select('xp phone');
   const freshXp = user?.xp ?? req.user.xp ?? 0;
 
   res.json({
@@ -195,6 +192,7 @@ const getMe = asyncHandler(async (req, res) => {
     email:            req.user.email,
     role:             req.user.role,
     avatar:           req.user.avatar           || null,
+    phone:            user?.phone               || null,
     isVerified:       req.user.isVerified        ?? true,
     organizationName: req.user.organizationName  || null,
     vibhag:           req.user.vibhag            || null,
@@ -247,7 +245,6 @@ const getUserProfile = asyncHandler(async (req, res) => {
     .sort((a, b) => new Date(b.date) - new Date(a.date))
     .slice(0, 10);
 
-  // Fetch real badges from UserBadge collection
   const badges = await getUserBadges(req.user._id);
 
   res.json({
@@ -257,6 +254,7 @@ const getUserProfile = asyncHandler(async (req, res) => {
     role:           user.role,
     avatar:         user.avatar,
     location:       user.location,
+    phone:          user.phone        || null,
     xp:             user.xp             || 0,
     currentXP:      user.xp             || 0,
     level:          user.level          || 1,
@@ -280,15 +278,36 @@ const updateProfile = asyncHandler(async (req, res) => {
   const user = await User.findById(req.user._id);
   if (!user) { res.status(404); throw new Error('User not found'); }
 
-  user.name     = req.body.name     || user.name;
-  user.location = req.body.location || user.location;
+  // ── Apply field updates ────────────────────────────────────────────────────
+  if (req.body.name)     user.name     = req.body.name;
+  if (req.body.location) user.location = req.body.location;
   if (req.body.password) user.password = req.body.password;
   if (req.file)          user.avatar   = req.file.path;
 
+  // Phone: accept null explicitly to allow clearing, otherwise only set if provided
+  if ('phone' in req.body) {
+    // Minimal format guard: must start with + and contain only digits/spaces after
+    const raw = req.body.phone;
+    if (raw === null || raw === '') {
+      user.phone = null;
+    } else if (/^\+?[0-9\s\-]{7,15}$/.test(raw)) {
+      user.phone = raw.trim();
+    } else {
+      res.status(400);
+      throw new Error('Invalid phone number format');
+    }
+  }
+
   const updated = await user.save();
 
-  // Award profile_complete badge when name + location + avatar all filled
-  const isProfileComplete = updated.name && updated.location && updated.avatar;
+  // ── Badge: profile_complete ────────────────────────────────────────────────
+  // Requires name + location + avatar + phone to all be filled.
+  const isProfileComplete =
+    updated.name &&
+    updated.location &&
+    updated.avatar &&
+    updated.phone;
+
   if (isProfileComplete) {
     awardSpecialBadge(updated._id, 'profile_complete').catch(err =>
       console.error('[Badge] profile_complete award failed:', err.message)
@@ -300,9 +319,10 @@ const updateProfile = asyncHandler(async (req, res) => {
     name:     updated.name,
     email:    updated.email,
     role:     updated.role,
-    avatar:   updated.avatar,
-    location: updated.location,
-    xp:       updated.xp || 0,
+    avatar:   updated.avatar   || '',
+    location: updated.location || '',
+    phone:    updated.phone    || null,
+    xp:       updated.xp      || 0,
   });
 });
 
