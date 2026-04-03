@@ -1,12 +1,13 @@
 /**
  * ProfileCard.jsx
- * Left sidebar — avatar ring, XP bar, tier, location/email, edit CTA.
+ * Left sidebar — avatar ring, XP bar, tier, location/email/phone, edit CTA.
+ * Reads `user.avatar` (backend) falling back to `user.image` (legacy).
  * Path: src/pages/profile/ProfileCard.jsx
  */
 
 import React from 'react';
 import { motion } from 'framer-motion';
-import { MapPin, Mail, Edit3, Share2, Camera } from 'lucide-react';
+import { MapPin, Mail, Edit3, Share2, Camera, Phone } from 'lucide-react';
 import { NV, OR, BG, FF, SF, TIERS, getTier, getNextTier, getProgress } from './profileTokens';
 
 const ProfileCard = ({ user, xp, onEdit }) => {
@@ -14,6 +15,10 @@ const ProfileCard = ({ user, xp, onEdit }) => {
   const nextTier = getNextTier(xp);
   const progress = getProgress(xp);
   const TierIcon = tier.Icon;
+
+  // Backend sends `avatar`; some legacy paths still use `image`
+  const avatarSrc  = user.avatar || user.image || '';
+  const fallbackSrc = `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=0f2c4a&color=fff&size=108`;
 
   const R    = 52;
   const circ = 2 * Math.PI * R;
@@ -26,18 +31,15 @@ const ProfileCard = ({ user, xp, onEdit }) => {
         fontFamily:FF }}>
 
       <div className="pp-profile-card-inner"
-        style={{ display:'flex', flexDirection:'column',
-          alignItems:'center', textAlign:'center', gap:0 }}>
+        style={{ display:'flex', flexDirection:'column', alignItems:'center', textAlign:'center', gap:0 }}>
 
         {/* ── Avatar ring ── */}
         <div className="pp-profile-card-ring"
-          style={{ position:'relative', width:148, height:148,
-            margin:'0 auto 0', flexShrink:0 }}>
+          style={{ position:'relative', width:148, height:148, margin:'0 auto 0', flexShrink:0 }}>
 
           <svg width="148" height="148"
             style={{ transform:'rotate(-90deg)', position:'absolute', inset:0 }}>
-            <circle cx="74" cy="74" r={R}
-              stroke="#f0ebe3" strokeWidth="6" fill="none"/>
+            <circle cx="74" cy="74" r={R} stroke="#f0ebe3" strokeWidth="6" fill="none"/>
             <motion.circle cx="74" cy="74" r={R}
               stroke={tier.bar} strokeWidth="6" fill="none" strokeLinecap="round"
               strokeDasharray={circ}
@@ -49,13 +51,14 @@ const ProfileCard = ({ user, xp, onEdit }) => {
           {/* Avatar */}
           <div className="pp-av-wrap"
             style={{ position:'absolute', inset:0, display:'flex',
-              alignItems:'center', justifyContent:'center',
-              cursor:'pointer' }}
+              alignItems:'center', justifyContent:'center', cursor:'pointer' }}
             onClick={onEdit}>
             <div style={{ width:108, height:108, borderRadius:'50%', overflow:'hidden',
               border:'4px solid #fff', boxShadow:'0 4px 18px rgba(15,44,74,0.13)' }}>
-              <img src={user.image} alt={user.name}
-                onError={e => { e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=0f2c4a&color=fff&size=108`; }}
+              <img
+                src={avatarSrc || fallbackSrc}
+                alt={user.name}
+                onError={e => { e.target.src = fallbackSrc; }}
                 style={{ width:'100%', height:'100%', objectFit:'cover' }}/>
             </div>
             <div className="pp-av-ov">
@@ -93,12 +96,10 @@ const ProfileCard = ({ user, xp, onEdit }) => {
           {/* XP Progress block */}
           <div style={{ background:BG, borderRadius:16, padding:'14px 16px',
             border:'1.5px solid #f0ebe3', marginBottom:16 }}>
-
             <div style={{ display:'flex', alignItems:'flex-end',
               justifyContent:'space-between', marginBottom:10 }}>
               <div>
-                <div style={{ fontFamily:SF, fontWeight:900,
-                  fontSize:28, color:OR, lineHeight:1 }}>
+                <div style={{ fontFamily:SF, fontWeight:900, fontSize:28, color:OR, lineHeight:1 }}>
                   {xp.toLocaleString()}
                 </div>
                 <div style={{ fontSize:9, fontWeight:800, color:'#94a3b8',
@@ -117,10 +118,7 @@ const ProfileCard = ({ user, xp, onEdit }) => {
                 </div>
               )}
             </div>
-
-            {/* Bar */}
-            <div style={{ height:6, background:'#e2e8f0',
-              borderRadius:999, overflow:'hidden' }}>
+            <div style={{ height:6, background:'#e2e8f0', borderRadius:999, overflow:'hidden' }}>
               <motion.div
                 initial={{ width:0 }}
                 animate={{ width:`${progress}%` }}
@@ -128,13 +126,10 @@ const ProfileCard = ({ user, xp, onEdit }) => {
                 style={{ height:'100%', borderRadius:999,
                   background:`linear-gradient(to right,${tier.bar},${OR})` }}/>
             </div>
-
-            {/* Tier dots */}
             <div style={{ display:'flex', justifyContent:'space-between', marginTop:8 }}>
               {TIERS.map(t => (
                 <div key={t.level}
-                  style={{ display:'flex', flexDirection:'column',
-                    alignItems:'center', gap:3 }}>
+                  style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:3 }}>
                   <div style={{ width:7, height:7, borderRadius:'50%',
                     background: xp >= t.minXp ? t.color : '#e2e8f0',
                     transition:'background 0.3s',
@@ -144,28 +139,59 @@ const ProfileCard = ({ user, xp, onEdit }) => {
             </div>
           </div>
 
-          {/* Location + email */}
+          {/* ── Contact rows: location / email / phone ── */}
           <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:20 }}>
-            {[
-              { Icon: MapPin, text: user.location || 'Location not set' },
-              { Icon: Mail,   text: user.email,   truncate: true },
-            ].map(({ Icon, text, truncate }, i) => (
-              <div key={i}
-                style={{ display:'flex', alignItems:'center', gap:10,
-                  background:'#f8fafc', borderRadius:12, padding:'10px 14px' }}>
-                <Icon size={13} style={{ color:OR, flexShrink:0 }}/>
+
+            {/* Location */}
+            <div style={{ display:'flex', alignItems:'center', gap:10,
+              background:'#f8fafc', borderRadius:12, padding:'10px 14px' }}>
+              <MapPin size={13} style={{ color: user.location ? OR : '#cbd5e1', flexShrink:0 }}/>
+              <span style={{ fontSize:12, fontWeight:600,
+                color: user.location ? '#475569' : '#94a3b8',
+                fontStyle: user.location ? 'normal' : 'italic' }}>
+                {user.location || 'Location not set'}
+              </span>
+            </div>
+
+            {/* Email */}
+            <div style={{ display:'flex', alignItems:'center', gap:10,
+              background:'#f8fafc', borderRadius:12, padding:'10px 14px' }}>
+              <Mail size={13} style={{ color:OR, flexShrink:0 }}/>
+              <span style={{ fontSize:12, color:'#475569', fontWeight:600,
+                overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', minWidth:0 }}>
+                {user.email}
+              </span>
+            </div>
+
+            {/* Phone */}
+            <div style={{ display:'flex', alignItems:'center', gap:10,
+              background:'#f8fafc', borderRadius:12, padding:'10px 14px' }}>
+              <Phone size={13} style={{ color: user.phone ? OR : '#cbd5e1', flexShrink:0 }}/>
+              {user.phone ? (
                 <span style={{ fontSize:12, color:'#475569', fontWeight:600,
-                  overflow: truncate ? 'hidden' : 'visible',
-                  textOverflow: truncate ? 'ellipsis' : 'clip',
-                  whiteSpace: truncate ? 'nowrap' : 'normal',
-                  minWidth:0 }}>
-                  {text}
+                  overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', minWidth:0 }}>
+                  {user.phone}
                 </span>
-              </div>
-            ))}
+              ) : (
+                <span style={{ fontSize:12, color:'#94a3b8', fontWeight:600, fontStyle:'italic' }}>
+                  Phone not set
+                </span>
+              )}
+              {!user.phone && (
+                <button onClick={onEdit}
+                  style={{ marginLeft:'auto', flexShrink:0, padding:'2px 9px',
+                    borderRadius:999, border:'none',
+                    background:`${OR}18`, color:OR,
+                    fontSize:9, fontWeight:900, fontFamily:FF,
+                    textTransform:'uppercase', letterSpacing:'0.08em',
+                    cursor:'pointer' }}>
+                  Add
+                </button>
+              )}
+            </div>
           </div>
 
-          {/* CTA */}
+          {/* ── CTA ── */}
           <div className="pp-profile-card-cta"
             style={{ display:'flex', gap:8, justifyContent:'center' }}>
             <button onClick={onEdit}
