@@ -3,8 +3,13 @@ import Complaint       from '../models/Complaint.js';
 import FieldWorker     from '../models/FieldWorker.js';
 import { getDistanceFromLatLonInM } from '../utils/locationUtils.js';
 import { sendNotification }         from '../utils/notificationSystem.js';
-import { awardXp }     from '../services/xpEngineService.js'; // ✅ replaces gamificationService + POINTS
-import { sendSMS, sendWhatsApp, smsTemplates, whatsAppTemplates } from '../services/smsService.js';
+import { awardXp }     from '../services/xpEngineService.js';
+import { sendSMS, smsTemplates }    from '../services/smsService.js';
+import {
+  notifyCitizenComplaintFiled,
+  notifyWorkerAssigned,
+  notifyCitizenComplaintResolved,
+} from '../services/twilioWhatsAppService.js'; // ✅ Twilio WhatsApp — 3 triggers only
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
@@ -47,7 +52,6 @@ const createComplaint = asyncHandler(async (req, res) => {
     });
     await duplicate.save();
 
-    // ✅ Award XP for verifying a duplicate (5 XP via verify_duplicate rule)
     await awardXp(req.user._id, 'verify_duplicate', { complaintId: duplicate._id });
 
     return res.status(200).json({
@@ -62,12 +66,14 @@ const createComplaint = asyncHandler(async (req, res) => {
     supportedBy: [req.user._id], upvotes: [req.user._id], status: 'pending',
   });
 
-  if (req.user.phone) await sendSMS(req.user.phone, smsTemplates.complaintFiled(complaint.ticketId));
+  // ✅ TRIGGER 1 — WhatsApp: Citizen notified when complaint is filed
+  if (req.user.phone) {
+    await notifyCitizenComplaintFiled(req.user.phone, complaint.ticketId, complaint.title);
+    await sendSMS(req.user.phone, smsTemplates.complaintFiled(complaint.ticketId)); // SMS fallback kept
+  }
 
-  // ✅ Award XP for filing a complaint (10 XP via file_complaint rule)
   await awardXp(req.user._id, 'file_complaint', { complaintId: complaint._id });
 
-  // ✅ Check first complaint bonus (one-time 30 XP)
   const complaintCount = await Complaint.countDocuments({ user: req.user._id });
   if (complaintCount === 1) {
     await awardXp(req.user._id, 'first_complaint', { complaintId: complaint._id });
@@ -111,6 +117,11 @@ const assignWorker = asyncHandler(async (req, res) => {
   const complaint = await Complaint.findById(req.params.id);
   if (!complaint) { res.status(404); throw new Error('Complaint not found'); }
 
+  const allowedStatuses = ['pending', 'under_review', 'officer_assigned'];
+  if (!allowedStatuses.includes(complaint.status)) {
+    res.status(400); throw new Error(`Cannot assign worker at status: ${complaint.status}`);
+  }
+
   const worker = await FieldWorker.findById(workerId);
   if (!worker) { res.status(404); throw new Error('Field worker not found'); }
 
@@ -122,7 +133,7 @@ const assignWorker = asyncHandler(async (req, res) => {
   complaint.status         = 'worker_assigned';
   complaint.timeline.push({
     status:    'worker_assigned',
-    message:   `Field worker ${worker.name} (${worker.employeeId}) assigned. WhatsApp sent.`,
+    message:   `Field worker ${worker.name} (${worker.employeeId}) assigned directly. WhatsApp sent.`,
     updatedBy: req.user._id,
   });
   await complaint.save();
@@ -130,7 +141,9 @@ const assignWorker = asyncHandler(async (req, res) => {
   worker.activeComplaints.push(complaint._id);
   await worker.save();
 
-  await sendWhatsApp(worker.phone, whatsAppTemplates.workerAssigned(complaint, magicLink));
+  // ✅ TRIGGER 2 — WhatsApp: Field worker gets task details + magic upload link
+  await notifyWorkerAssigned(worker.phone, complaint, magicLink);
+
   res.json({ message: 'Worker assigned and WhatsApp sent.', complaint });
 });
 
@@ -177,7 +190,7 @@ const magicUpload = asyncHandler(async (req, res) => {
   complaint.resolutionImage  = req.file.path;
   complaint.magicToken       = null;
   complaint.magicTokenExpiry = null;
-  complaint.status           = 'in_progress'; 
+  complaint.status           = 'in_progress';
   complaint.timeline.push({
     status:  'in_progress',
     message: 'Field worker uploaded proof photo. Awaiting officer review.',
@@ -212,12 +225,17 @@ const resolveComplaint = asyncHandler(async (req, res) => {
   });
   await complaint.save();
 
-  // ✅ Award XP for complaint being resolved (25 XP via complaint_resolved rule)
   await awardXp(complaint.user, 'complaint_resolved', { complaintId: complaint._id });
 
   const User = (await import('../models/User.js')).default;
   const user = await User.findById(complaint.user);
-  if (user?.phone) await sendSMS(user.phone, smsTemplates.complaintResolved(complaint.ticketId));
+
+  // ✅ TRIGGER 3 — WhatsApp: Citizen notified when complaint is resolved
+  if (user?.phone) {
+    await notifyCitizenComplaintResolved(user.phone, complaint.ticketId, complaint.resolutionNote);
+    await sendSMS(user.phone, smsTemplates.complaintResolved(complaint.ticketId)); // SMS fallback kept
+  }
+
   await sendNotification(
     complaint.user,
     `Your complaint ${complaint.ticketId} has been resolved! Please rate the service.`,
@@ -274,7 +292,6 @@ const rateComplaint = asyncHandler(async (req, res) => {
 
   await complaint.save();
 
-  // ✅ Award XP for giving feedback (5 XP via rate_feedback rule)
   await awardXp(complaint.user, 'rate_feedback', { complaintId: complaint._id });
 
   res.json(complaint);
