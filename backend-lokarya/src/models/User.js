@@ -17,6 +17,11 @@ const userSchema = mongoose.Schema(
     avatar: { type: String, default: "" },
     location: { type: String, default: "" },
 
+    // ── CONTACT ───────────────────────────────────────────────────────────
+    // Stored as a plain string so it works for IN (+91) or any country code.
+    // Validate format on the frontend / with a validator middleware.
+    phone: { type: String, default: null },
+
     // ── ROLES ─────────────────────────────────────────────────────────────
     role: {
       type: String,
@@ -63,14 +68,10 @@ const userSchema = mongoose.Schema(
 
     // ── AUTH ───────────────────────────────────────────────────────────────
     isOAuthUser: { type: Boolean, default: false },
-    // ── OAUTH ONE-TIME TOKEN (for cross-origin Google login) ───────────────────
+    // ── OAUTH ONE-TIME TOKEN (for cross-origin Google login) ───────────────
     oauthToken: { type: String, default: null },
     oauthTokenExpiry: { type: Date, default: null },
-    // ── REFRESH TOKEN (NEW) ────────────────────────────────────────────────
-    // Stores a bcrypt hash of the refresh token so we can:
-    //   • validate incoming refresh tokens against the DB
-    //   • revoke tokens on logout / ban / suspicious activity
-    //   • ensure only ONE active refresh token per user at a time
+    // ── REFRESH TOKEN ──────────────────────────────────────────────────────
     refreshToken: { type: String, default: null },
     refreshTokenExpiry: { type: Date, default: null },
   },
@@ -95,7 +96,6 @@ userSchema.methods.matchPassword = async function (enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
 };
 
-// Compares incoming plain refresh token against stored bcrypt hash
 userSchema.methods.matchRefreshToken = async function (token) {
   if (!this.refreshToken) return false;
   if (this.refreshTokenExpiry && this.refreshTokenExpiry < new Date())
@@ -103,14 +103,12 @@ userSchema.methods.matchRefreshToken = async function (token) {
   return await bcrypt.compare(token, this.refreshToken);
 };
 
-// Hashes and stores the refresh token + expiry in one call
 userSchema.methods.setRefreshToken = async function (plainToken) {
   const rounds = parseInt(process.env.BCRYPT_REFRESH_ROUNDS) || 10;
   this.refreshToken = await bcrypt.hash(plainToken, rounds);
-  this.refreshTokenExpiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30d
+  this.refreshTokenExpiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 };
 
-// Clears the stored refresh token (logout / ban)
 userSchema.methods.clearRefreshToken = function () {
   this.refreshToken = null;
   this.refreshTokenExpiry = null;
