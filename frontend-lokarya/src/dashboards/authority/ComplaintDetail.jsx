@@ -4,8 +4,8 @@ import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ArrowLeft, CheckCircle2, Clock, Flame, Loader2,
-  UserPlus, Wrench, X, AlertTriangle, Star,
-  Image as ImageIcon, Camera, ShieldCheck, Users,
+  Wrench, X, AlertTriangle, Star,
+  Image as ImageIcon, Camera, ShieldCheck,
 } from 'lucide-react';
 import api            from '../../api/axios';
 import EnhancedMiniMap from './EnhancedMiniMap';
@@ -21,20 +21,6 @@ const imgUrl = (raw) => {
 };
 
 /* ─── reusable form primitives ─────────────────────────────────────────────── */
-const Field = ({ label, value, onChange, placeholder, type = 'text' }) => (
-  <div style={{ marginBottom: 14 }}>
-    <label style={{ color: '#64748b', fontSize: 11, fontWeight: 700,
-      display: 'block', marginBottom: 5 }}>{label}</label>
-    <input
-      type={type} value={value} onChange={e => onChange(e.target.value)}
-      placeholder={placeholder}
-      style={{ width: '100%', padding: '9px 12px', borderRadius: 9,
-        background: '#f8fafc', border: '1px solid #e2e8f0', color: '#0f172a',
-        fontSize: 13, outline: 'none', fontFamily: "'DM Sans',sans-serif",
-        boxSizing: 'border-box' }} />
-  </div>
-);
-
 const Textarea = ({ label, value, onChange, placeholder }) => (
   <div style={{ marginBottom: 14 }}>
     <label style={{ color: '#64748b', fontSize: 11, fontWeight: 700,
@@ -101,7 +87,7 @@ const Modal = ({ title, onClose, children }) =>
 /* ─── Status / Timeline config ─────────────────────────────────────────────── */
 const STEP_ICON = {
   pending:          Clock,
-  officer_assigned: UserPlus,
+  officer_assigned: CheckCircle2,
   worker_assigned:  Wrench,
   in_progress:      Wrench,
   resolved:         CheckCircle2,
@@ -131,7 +117,7 @@ const TimelineStep = ({ step, isLast }) => {
   const Icon  = STEP_ICON[step.status]  || Clock;
   const color = STEP_COLOR[step.status] || '#d97706';
   const bg    = STEP_BG[step.status]    || '#fef3c7';
-  const ts    = step.date || step.timestamp; // schema uses `date`
+  const ts    = step.date || step.timestamp;
   return (
     <div style={{ display: 'flex', gap: 12 }}>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -174,99 +160,17 @@ const InfoTile = ({ label, value }) => (
   </div>
 );
 
-/* ─── OfficerPicker — selectable list of local_authority users ─────────────── */
-const OfficerPicker = ({ selected, onSelect }) => {
-  const [officers, setOfficers] = useState([]);
-  const [loading,  setLoading]  = useState(true);
-
-  useEffect(() => {
-    // GET /api/admin/users?role=local_authority  (adjust path if different)
-    api.get('/admin/users?role=local_authority')
-      .then(({ data }) => {
-        // handle both { users:[...] } and plain array responses
-        setOfficers(Array.isArray(data) ? data : data.users || []);
-      })
-      .catch(() => setOfficers([]))
-      .finally(() => setLoading(false));
-  }, []);
-
-  if (loading) return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8,
-      padding: '16px 0', color: '#94a3b8' }}>
-      <Loader2 size={14} style={{ animation: 'spin 1s linear infinite', color: '#2563eb' }} />
-      <span style={{ fontSize: 13 }}>Loading officers…</span>
-    </div>
-  );
-
-  if (officers.length === 0) return (
-    <div style={{ textAlign: 'center', padding: '20px 0' }}>
-      <Users size={28} style={{ color: '#e2e8f0', margin: '0 auto 8px', display: 'block' }} />
-      <p style={{ color: '#94a3b8', fontSize: 13 }}>No officers found.</p>
-      <p style={{ color: '#cbd5e1', fontSize: 11, marginTop: 3 }}>
-        Add users with role <code>local_authority</code> first.
-      </p>
-    </div>
-  );
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8,
-      maxHeight: 260, overflowY: 'auto', marginBottom: 4 }}>
-      {officers.map(o => {
-        const isSelected = selected?._id === o._id;
-        return (
-          <button key={o._id} onClick={() => onSelect(o)}
-            style={{ display: 'flex', alignItems: 'center', gap: 12,
-              padding: '11px 14px', borderRadius: 10, cursor: 'pointer', textAlign: 'left',
-              background: isSelected ? '#eff6ff' : '#f8fafc',
-              border: isSelected ? '1px solid #bfdbfe' : '1px solid #f1f5f9',
-              fontFamily: "'DM Sans',sans-serif", transition: 'all 0.15s' }}
-            onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = '#f1f5f9'; }}
-            onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = '#f8fafc'; }}>
-
-            {/* Avatar initial */}
-            <div style={{ width: 36, height: 36, borderRadius: 999, flexShrink: 0,
-              background: isSelected
-                ? 'linear-gradient(135deg,#3b82f6,#1d4ed8)'
-                : 'linear-gradient(135deg,#94a3b8,#64748b)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: '#fff', fontWeight: 800, fontSize: 15 }}>
-              {o.name?.[0]?.toUpperCase() || '?'}
-            </div>
-
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <p style={{ color: '#0f172a', fontWeight: 700, fontSize: 13,
-                margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {o.name}
-              </p>
-              <p style={{ color: '#94a3b8', fontSize: 10, margin: 0, marginTop: 2,
-                fontFamily: "'JetBrains Mono',monospace" }}>
-                {o.department || o.designation || 'Ward Officer'}
-                {o.vibhag ? ` · ${o.vibhag}` : ''}
-              </p>
-            </div>
-
-            {isSelected && (
-              <CheckCircle2 size={15} style={{ color: '#2563eb', flexShrink: 0 }} />
-            )}
-          </button>
-        );
-      })}
-    </div>
-  );
-};
-
 /* ══════════════════════════════════════════════════════════════════════════════
    MAIN COMPONENT
 ══════════════════════════════════════════════════════════════════════════════ */
 const ComplaintDetail = ({ complaintId, onBack }) => {
-  const [c,            setC]            = useState(null);
-  const [loading,      setLoading]      = useState(true);
-  const [modal,        setModal]        = useState(null); // 'officer' | 'worker' | 'resolve'
-  const [workers,      setWorkers]      = useState([]);
-  const [selWorker,    setSelWorker]    = useState('');
-  const [selOfficer,   setSelOfficer]   = useState(null); // full user object
-  const [resolveNote,  setResolveNote]  = useState('');
-  const [submitting,   setSubmitting]   = useState(false);
+  const [c,           setC]           = useState(null);
+  const [loading,     setLoading]     = useState(true);
+  const [modal,       setModal]       = useState(null); // 'worker' | 'resolve'
+  const [workers,     setWorkers]     = useState([]);
+  const [selWorker,   setSelWorker]   = useState('');
+  const [resolveNote, setResolveNote] = useState('');
+  const [submitting,  setSubmitting]  = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -282,28 +186,11 @@ const ComplaintDetail = ({ complaintId, onBack }) => {
     api.get('/field-workers')
       .then(({ data }) => setWorkers(data))
       .catch(() => setWorkers([]));
+    setSelWorker('');
     setModal('worker');
   };
 
-  /* ── assign officer from picker ── */
-  const assignOfficer = async () => {
-    if (!selOfficer) return;
-    setSubmitting(true);
-    try {
-      await api.patch(`/complaints/${complaintId}/assign-officer`, {
-        officerName:        selOfficer.name,
-        officerDesignation: selOfficer.department || selOfficer.designation || 'Ward Officer',
-        officerContact:     selOfficer.phone || selOfficer.email || '',
-        officerUserId:      selOfficer._id,
-      });
-      setModal(null);
-      setSelOfficer(null);
-      load();
-    } catch (e) { console.error(e); }
-    finally { setSubmitting(false); }
-  };
-
-  /* ── assign worker ── */
+  /* ── assign worker directly (works from pending, under_review, officer_assigned) ── */
   const assignWorker = async () => {
     if (!selWorker) return;
     setSubmitting(true);
@@ -348,12 +235,14 @@ const ComplaintDetail = ({ complaintId, onBack }) => {
   );
 
   /* ── derived state ── */
-  const sm               = STATUS_META[c.status] || STATUS_META.pending;
-  const canAssignOfficer = ['pending', 'under_review'].includes(c.status);
-  const canAssignWorker  = c.status === 'officer_assigned';
-const canResolve = ['worker_accepted', 'in_progress', 'worker_assigned'].includes(c.status);
-  const citizenPhoto     = imgUrl(c.image);
-  const resolutionPhoto  = imgUrl(c.resolutionImage);
+  const sm = STATUS_META[c.status] || STATUS_META.pending;
+
+  // ✅ Direct worker assignment — works from pending, under_review, officer_assigned
+  const canAssignWorker = ['pending', 'under_review', 'officer_assigned'].includes(c.status);
+  const canResolve      = ['worker_accepted', 'in_progress', 'worker_assigned'].includes(c.status);
+
+  const citizenPhoto    = imgUrl(c.image);
+  const resolutionPhoto = imgUrl(c.resolutionImage);
 
   return (
     <div style={{ fontFamily: "'DM Sans',sans-serif", maxWidth: 940 }}>
@@ -515,79 +404,34 @@ const canResolve = ['worker_accepted', 'in_progress', 'worker_assigned'].include
         {/* ════════════════ RIGHT COLUMN ════════════════ */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
 
-          {/* Ward Officer card */}
-          <div style={{ background: '#fff', borderRadius: 14, padding: 18,
-            border: '1px solid #e2e8f0', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
-            <p style={{ color: '#94a3b8', fontSize: 10, fontWeight: 700, marginBottom: 12,
-              textTransform: 'uppercase', letterSpacing: '0.07em' }}>Ward Officer</p>
-
-            {c.assignedOfficer?.name ? (
-              <div style={{ marginBottom: 12 }}>
-                {/* avatar + name row */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-                  <div style={{ width: 36, height: 36, borderRadius: 999, flexShrink: 0,
-                    background: 'linear-gradient(135deg,#3b82f6,#1d4ed8)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    color: '#fff', fontWeight: 800, fontSize: 15 }}>
-                    {c.assignedOfficer.name[0].toUpperCase()}
-                  </div>
-                  <div>
-                    <p style={{ color: '#0f172a', fontWeight: 700, fontSize: 13, margin: 0 }}>
-                      {c.assignedOfficer.name}
-                    </p>
-                    <p style={{ color: '#64748b', fontSize: 11, margin: 0 }}>
-                      {c.assignedOfficer.designation || 'Ward Officer'}
-                    </p>
-                  </div>
-                </div>
-                {c.assignedOfficer.contact && (
-                  <p style={{ color: '#94a3b8', fontSize: 11,
-                    fontFamily: "'JetBrains Mono',monospace" }}>
-                    {c.assignedOfficer.contact}
-                  </p>
-                )}
-              </div>
-            ) : (
-              <p style={{ color: '#94a3b8', fontSize: 12, marginBottom: 12 }}>
-                Not yet assigned
-              </p>
-            )}
-
-            {canAssignOfficer && (
-              <button onClick={() => setModal('officer')}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6,
-                  padding: '7px 12px', borderRadius: 8,
-                  background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1d4ed8',
-                  fontSize: 12, fontWeight: 800, cursor: 'pointer',
-                  fontFamily: "'DM Sans',sans-serif" }}>
-                <UserPlus size={13} />
-                {c.assignedOfficer?.name ? 'Reassign Officer' : 'Assign Officer'}
-              </button>
-            )}
-          </div>
-
-          {/* Field Worker card */}
+          {/* ✅ Field Worker card — primary assignment card */}
           <div style={{ background: '#fff', borderRadius: 14, padding: 18,
             border: '1px solid #e2e8f0', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
             <p style={{ color: '#94a3b8', fontSize: 10, fontWeight: 700, marginBottom: 12,
               textTransform: 'uppercase', letterSpacing: '0.07em' }}>Field Worker</p>
 
             {c.assignedWorker ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-                <div style={{ width: 36, height: 36, borderRadius: 999, flexShrink: 0,
-                  background: 'linear-gradient(135deg,#10b981,#047857)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  color: '#fff', fontWeight: 800, fontSize: 15 }}>
-                  {c.assignedWorker.name?.[0]?.toUpperCase() || 'W'}
-                </div>
-                <div>
-                  <p style={{ color: '#0f172a', fontWeight: 700, fontSize: 13, margin: 0 }}>
-                    {c.assignedWorker.name}
-                  </p>
-                  <p style={{ color: '#94a3b8', fontSize: 11, margin: 0,
-                    fontFamily: "'JetBrains Mono',monospace" }}>
-                    {c.assignedWorker.phone}
-                  </p>
+              <div style={{ marginBottom: canAssignWorker ? 12 : 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: 999, flexShrink: 0,
+                    background: 'linear-gradient(135deg,#10b981,#047857)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    color: '#fff', fontWeight: 800, fontSize: 15 }}>
+                    {c.assignedWorker.name?.[0]?.toUpperCase() || 'W'}
+                  </div>
+                  <div>
+                    <p style={{ color: '#0f172a', fontWeight: 700, fontSize: 13, margin: 0 }}>
+                      {c.assignedWorker.name}
+                    </p>
+                    <p style={{ color: '#94a3b8', fontSize: 11, margin: 0,
+                      fontFamily: "'JetBrains Mono',monospace" }}>
+                      {c.assignedWorker.employeeId}
+                    </p>
+                    <p style={{ color: '#94a3b8', fontSize: 11, margin: 0,
+                      fontFamily: "'JetBrains Mono',monospace" }}>
+                      {c.assignedWorker.phone}
+                    </p>
+                  </div>
                 </div>
               </div>
             ) : (
@@ -596,17 +440,50 @@ const canResolve = ['worker_accepted', 'in_progress', 'worker_assigned'].include
               </p>
             )}
 
+            {/* ✅ Show assign/reassign button whenever status allows */}
             {canAssignWorker && (
               <button onClick={openWorkerModal}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6,
                   padding: '7px 12px', borderRadius: 8,
                   background: '#ecfdf5', border: '1px solid #a7f3d0', color: '#047857',
                   fontSize: 12, fontWeight: 800, cursor: 'pointer',
-                  fontFamily: "'DM Sans',sans-serif" }}>
-                <Wrench size={13} /> Assign Worker
+                  fontFamily: "'DM Sans',sans-serif", marginTop: c.assignedWorker ? 8 : 0 }}>
+                <Wrench size={13} />
+                {c.assignedWorker ? 'Reassign Worker' : 'Assign Worker'}
               </button>
             )}
           </div>
+
+          {/* ✅ Ward Officer card — read-only, shown only if one was previously assigned */}
+          {c.assignedOfficer?.name && (
+            <div style={{ background: '#fff', borderRadius: 14, padding: 18,
+              border: '1px solid #e2e8f0', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
+              <p style={{ color: '#94a3b8', fontSize: 10, fontWeight: 700, marginBottom: 12,
+                textTransform: 'uppercase', letterSpacing: '0.07em' }}>Ward Officer</p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width: 36, height: 36, borderRadius: 999, flexShrink: 0,
+                  background: 'linear-gradient(135deg,#3b82f6,#1d4ed8)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: '#fff', fontWeight: 800, fontSize: 15 }}>
+                  {c.assignedOfficer.name[0].toUpperCase()}
+                </div>
+                <div>
+                  <p style={{ color: '#0f172a', fontWeight: 700, fontSize: 13, margin: 0 }}>
+                    {c.assignedOfficer.name}
+                  </p>
+                  <p style={{ color: '#64748b', fontSize: 11, margin: 0 }}>
+                    {c.assignedOfficer.designation || 'Ward Officer'}
+                  </p>
+                  {c.assignedOfficer.contact && (
+                    <p style={{ color: '#94a3b8', fontSize: 11, margin: 0,
+                      fontFamily: "'JetBrains Mono',monospace" }}>
+                      {c.assignedOfficer.contact}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Resolve button */}
           {canResolve && (
@@ -662,32 +539,17 @@ const canResolve = ['worker_accepted', 'in_progress', 'worker_assigned'].include
       {/* ══════════════ MODALS ══════════════ */}
       <AnimatePresence>
 
-        {/* Officer modal — picker from local_authority users */}
-        {modal === 'officer' && (
-          <Modal title="Assign Ward Officer" onClose={() => { setModal(null); setSelOfficer(null); }}>
-            <p style={{ color: '#64748b', fontSize: 12, marginBottom: 14, lineHeight: 1.6 }}>
-              Select a ward officer from your registered authority users.
-            </p>
-            <OfficerPicker selected={selOfficer} onSelect={setSelOfficer} />
-            <div style={{ marginTop: 14 }}>
-              <SubmitBtn
-                label="Assign Officer"
-                onClick={assignOfficer}
-                loading={submitting}
-                disabled={!selOfficer}
-              />
-            </div>
-          </Modal>
-        )}
-
-        {/* Worker modal */}
+        {/* ✅ Worker modal — now the only assignment modal */}
         {modal === 'worker' && (
           <Modal title="Assign Field Worker" onClose={() => setModal(null)}>
+            <p style={{ color: '#64748b', fontSize: 12, marginBottom: 14, lineHeight: 1.6 }}>
+              Select a field worker to assign directly. A WhatsApp notification will be sent.
+            </p>
             <div style={{ maxHeight: 260, overflowY: 'auto', marginBottom: 14,
               display: 'flex', flexDirection: 'column', gap: 8 }}>
               {workers.length === 0 ? (
                 <p style={{ color: '#94a3b8', fontSize: 13, textAlign: 'center', padding: '20px 0' }}>
-                  No workers found.
+                  No field workers found.
                 </p>
               ) : workers.map(w => (
                 <button key={w._id} onClick={() => setSelWorker(w._id)}
@@ -695,15 +557,20 @@ const canResolve = ['worker_accepted', 'in_progress', 'worker_assigned'].include
                     padding: '11px 14px', borderRadius: 10, cursor: 'pointer', textAlign: 'left',
                     background: selWorker === w._id ? '#eff6ff' : '#f8fafc',
                     border: selWorker === w._id ? '1px solid #bfdbfe' : '1px solid #f1f5f9',
-                    fontFamily: "'DM Sans',sans-serif" }}>
+                    fontFamily: "'DM Sans',sans-serif", transition: 'all 0.15s' }}
+                  onMouseEnter={e => { if (selWorker !== w._id) e.currentTarget.style.background = '#f1f5f9'; }}
+                  onMouseLeave={e => { if (selWorker !== w._id) e.currentTarget.style.background = '#f8fafc'; }}>
                   <div style={{ width: 34, height: 34, borderRadius: 999, flexShrink: 0,
-                    background: 'linear-gradient(135deg,#3b82f6,#1d4ed8)',
+                    background: selWorker === w._id
+                      ? 'linear-gradient(135deg,#10b981,#047857)'
+                      : 'linear-gradient(135deg,#94a3b8,#64748b)',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     color: '#fff', fontWeight: 800, fontSize: 14 }}>
-                    {w.name[0]}
+                    {w.name?.[0]?.toUpperCase() || 'W'}
                   </div>
-                  <div>
-                    <p style={{ color: '#0f172a', fontWeight: 700, fontSize: 13, margin: 0 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ color: '#0f172a', fontWeight: 700, fontSize: 13, margin: 0,
+                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {w.name}
                     </p>
                     <p style={{ color: '#94a3b8', fontSize: 10, margin: 0,
@@ -712,7 +579,7 @@ const canResolve = ['worker_accepted', 'in_progress', 'worker_assigned'].include
                     </p>
                   </div>
                   {selWorker === w._id && (
-                    <CheckCircle2 size={15} style={{ color: '#2563eb', marginLeft: 'auto' }} />
+                    <CheckCircle2 size={15} style={{ color: '#059669', flexShrink: 0 }} />
                   )}
                 </button>
               ))}
