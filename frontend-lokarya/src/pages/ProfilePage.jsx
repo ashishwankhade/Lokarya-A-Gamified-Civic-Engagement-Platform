@@ -161,6 +161,7 @@ const ProfilePage = () => {
     role:     (profile.role || 'Citizen').replace(/_/g, ' '),
     location: profile.location || '',
     email:    profile.email,
+    phone: profile.phone,
     image:    profile.avatar ||
               `https://ui-avatars.com/api/?name=${encodeURIComponent(profile.name)}&background=0f2c4a&color=fff&size=128`,
   };
