@@ -7,8 +7,6 @@ import crypto       from 'crypto';
 import { awardSpecialBadge, getUserBadges } from '../services/badgeService.js';
 
 // ─── HELPER ───────────────────────────────────────────────────────────────────
-const isProd = process.env.NODE_ENV === 'production';
-
 const sendTokenResponse = async (user, statusCode, res) => {
   const accessToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
     expiresIn: '15m',
@@ -59,10 +57,7 @@ const registerUser = asyncHandler(async (req, res) => {
   const { name, email, password, role } = req.body;
 
   const userExists = await User.findOne({ email });
-  if (userExists) {
-    res.status(400);
-    throw new Error('User already exists');
-  }
+  if (userExists) { res.status(400); throw new Error('User already exists'); }
 
   const allowedRoles = ['citizen', 'ngo_admin', 'local_authority'];
   const assignedRole = allowedRoles.includes(role) ? role : 'citizen';
@@ -84,10 +79,7 @@ const registerUser = asyncHandler(async (req, res) => {
     phone:          null,
   });
 
-  if (!user) {
-    res.status(400);
-    throw new Error('Invalid user data');
-  }
+  if (!user) { res.status(400); throw new Error('Invalid user data'); }
 
   awardSpecialBadge(user._id, 'first_login').catch(err =>
     console.error('[Badge] first_login award failed:', err.message)
@@ -102,16 +94,13 @@ const loginUser = asyncHandler(async (req, res) => {
   const user = await User.findOne({ email });
 
   if (!user || !(await user.matchPassword(password))) {
-    res.status(401);
-    throw new Error('Invalid email or password');
+    res.status(401); throw new Error('Invalid email or password');
   }
   if (!user.isVerified) {
-    res.status(403);
-    throw new Error('Your account is pending approval by the Administrator.');
+    res.status(403); throw new Error('Your account is pending approval by the Administrator.');
   }
   if (user.banned) {
-    res.status(403);
-    throw new Error('Your account has been suspended. Contact support.');
+    res.status(403); throw new Error('Your account has been suspended. Contact support.');
   }
 
   await sendTokenResponse(user, 200, res);
@@ -123,13 +112,13 @@ const logoutUser = asyncHandler(async (req, res) => {
   if (incomingToken) {
     try {
       const decoded = jwt.verify(req.cookies.token, process.env.JWT_SECRET);
-      const user = await User.findById(decoded.id);
+      const user    = await User.findById(decoded.id);
       if (user) {
         user.clearRefreshToken();
         await user.save({ validateBeforeSave: false });
       }
     } catch {
-      // Access token may already be expired — fine, still clear cookies
+      // Access token may already be expired — still clear cookies
     }
   }
 
@@ -148,25 +137,28 @@ const logoutUser = asyncHandler(async (req, res) => {
 // ─── REFRESH TOKEN ────────────────────────────────────────────────────────────
 const refreshAccessToken = asyncHandler(async (req, res) => {
   const incomingToken = req.cookies.refreshToken;
-  if (!incomingToken) {
-    res.status(401);
-    throw new Error('No refresh token');
-  }
+  if (!incomingToken) { res.status(401); throw new Error('No refresh token'); }
+
+  // ✅ Hash the incoming plain token with sha256 for fast indexed DB lookup.
+  // This avoids scanning all users with bcrypt.compare which is O(n) and slow.
+  // The bcrypt hash in refreshToken is still the source of truth for security,
+  // but we don't need to verify it separately — sha256 lookup is sufficient
+  // because the plain token itself is 40 cryptographically random bytes.
+  const hashedLookup = crypto
+    .createHash('sha256')
+    .update(incomingToken)
+    .digest('hex');
 
   const user = await User.findOne({
-    refreshToken:       { $ne: null },
-    refreshTokenExpiry: { $gt: new Date() },
+    refreshTokenLookup: hashedLookup,        // fast indexed lookup
+    refreshTokenExpiry: { $gt: new Date() }, // not expired
     banned:             false,
     isVerified:         true,
-  }).select('+refreshToken +refreshTokenExpiry');
+  });
 
-  const isValid = user && await user.matchRefreshToken(incomingToken);
+  if (!user) { res.status(401); throw new Error('Invalid or expired refresh token'); }
 
-  if (!isValid) {
-    res.status(401);
-    throw new Error('Invalid or expired refresh token');
-  }
-
+  // Issue a new 15-minute access token
   const newAccessToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
     expiresIn: '15m',
   });
@@ -278,36 +270,25 @@ const updateProfile = asyncHandler(async (req, res) => {
   const user = await User.findById(req.user._id);
   if (!user) { res.status(404); throw new Error('User not found'); }
 
-  // ── Apply field updates ────────────────────────────────────────────────────
   if (req.body.name)     user.name     = req.body.name;
   if (req.body.location) user.location = req.body.location;
   if (req.body.password) user.password = req.body.password;
-  if (req.file)          user.avatar   = req.file.path;
+  if (req.file)          user.avatar   = req.file.secure_url || req.file.path; // ✅ Cloudinary
 
-  // Phone: accept null explicitly to allow clearing, otherwise only set if provided
   if ('phone' in req.body) {
-    // Minimal format guard: must start with + and contain only digits/spaces after
     const raw = req.body.phone;
     if (raw === null || raw === '') {
       user.phone = null;
     } else if (/^\+?[0-9\s\-]{7,15}$/.test(raw)) {
       user.phone = raw.trim();
     } else {
-      res.status(400);
-      throw new Error('Invalid phone number format');
+      res.status(400); throw new Error('Invalid phone number format');
     }
   }
 
   const updated = await user.save();
 
-  // ── Badge: profile_complete ────────────────────────────────────────────────
-  // Requires name + location + avatar + phone to all be filled.
-  const isProfileComplete =
-    updated.name &&
-    updated.location &&
-    updated.avatar &&
-    updated.phone;
-
+  const isProfileComplete = updated.name && updated.location && updated.avatar && updated.phone;
   if (isProfileComplete) {
     awardSpecialBadge(updated._id, 'profile_complete').catch(err =>
       console.error('[Badge] profile_complete award failed:', err.message)

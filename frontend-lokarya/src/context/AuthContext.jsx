@@ -54,8 +54,6 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   // ── logout ────────────────────────────────────────────────────────────────
-  // FIX: removed stale localStorage.removeItem('userInfo') — tokens are
-  // never stored in localStorage (httpOnly cookies only). Dead code removed.
   const logout = useCallback(async () => {
     try {
       await api.post('/auth/logout');
@@ -100,6 +98,34 @@ export const AuthProvider = ({ children }) => {
     }));
     setTimeout(() => dismissToast(id), 4000);
   }, [dismissToast]);
+
+  // ── Proactive silent refresh every 13 minutes ─────────────────────────────
+  // Runs 2 minutes before the 15m access token expires so users never hit a
+  // 401 mid-session. Restarts automatically if the user object changes.
+  useEffect(() => {
+    if (!user) return;
+
+    const interval = setInterval(async () => {
+      try {
+        await api.post('/auth/refresh');
+      } catch {
+        // If silent refresh fails the axios interceptor will fire auth:logout
+        // on the next real request — no need to force logout here proactively.
+      }
+    }, 13 * 60 * 1000); // 13 minutes
+
+    return () => clearInterval(interval);
+  }, [user]);
+
+  // ── Listen for forced logout event fired by axios interceptor ────────────
+  // When a refresh attempt inside the interceptor fails (truly expired session),
+  // it dispatches 'auth:logout' so we cleanly wipe state here rather than
+  // doing a hard redirect inside the interceptor.
+  useEffect(() => {
+    const handler = () => logout();
+    window.addEventListener('auth:logout', handler);
+    return () => window.removeEventListener('auth:logout', handler);
+  }, [logout]);
 
   // ── Derived role helpers ──────────────────────────────────────────────────
   const isLoggedIn  = !!user;

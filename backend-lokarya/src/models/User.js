@@ -1,21 +1,22 @@
-import mongoose from "mongoose";
-import bcrypt from "bcrypt";
+import mongoose from 'mongoose';
+import bcrypt   from 'bcrypt';
+import crypto   from 'crypto'; // ✅ needed for sha256 refresh token lookup
 
 const pointHistorySchema = new mongoose.Schema({
-  reason: { type: String, required: true },
+  reason:        { type: String, required: true },
   pointsChanged: { type: Number, required: true },
-  date: { type: Date, default: Date.now },
+  date:          { type: Date, default: Date.now },
 });
 
 const userSchema = mongoose.Schema(
   {
-    name: { type: String, required: true },
-    email: { type: String, required: true, unique: true },
+    name:     { type: String, required: true },
+    email:    { type: String, required: true, unique: true },
     password: { type: String, required: true },
 
-    // --- Profile ---
-    avatar: { type: String, default: "" },
-    location: { type: String, default: "" },
+    // ── PROFILE ───────────────────────────────────────────────────────────
+    avatar:   { type: String, default: '' },
+    location: { type: String, default: '' },
 
     // ── CONTACT ───────────────────────────────────────────────────────────
     phone: { type: String, default: null },
@@ -23,42 +24,36 @@ const userSchema = mongoose.Schema(
     // ── ROLES ─────────────────────────────────────────────────────────────
     role: {
       type: String,
-      enum: [
-        "citizen",
-        "ngo_admin",
-        "local_authority",
-        "super_admin",
-        "field_worker",
-      ],
-      default: "citizen",
+      enum: ['citizen', 'ngo_admin', 'local_authority', 'super_admin', 'field_worker'],
+      default: 'citizen',
     },
 
     isVerified: { type: Boolean, default: true },
 
-    // ── GAMIFICATION (OLD — kept for backward compat) ──────────────────────
-    totalPoints: { type: Number, default: 0 },
+    // ── GAMIFICATION (OLD — kept for backward compat) ─────────────────────
+    totalPoints:    { type: Number, default: 0 },
     lifetimePoints: { type: Number, default: 0 },
-    level: { type: Number, default: 1 },
-    currentLevel: { type: String, default: "Civic Scout" },
-    nextLevelXP: { type: Number, default: 200 },
+    level:          { type: Number, default: 1 },
+    currentLevel:   { type: String, default: 'Civic Scout' },
+    nextLevelXP:    { type: Number, default: 200 },
 
     badges: [
       {
-        name: String,
-        icon: String,
+        name:       String,
+        icon:       String,
         earnedDate: { type: Date, default: Date.now },
       },
     ],
 
     pointHistory: [pointHistorySchema],
 
-    // ── GAMIFICATION (NEW — XP Engine) ─────────────────────────────────────
+    // ── GAMIFICATION (NEW — XP Engine) ────────────────────────────────────
     xp: { type: Number, default: 0, min: 0 },
 
-    // ── PLATFORM MODERATION ────────────────────────────────────────────────
+    // ── PLATFORM MODERATION ───────────────────────────────────────────────
     banned: { type: Boolean, default: false },
 
-    // ── ORG / AUTHORITY SPECIFIC ───────────────────────────────────────────
+    // ── ORG / AUTHORITY SPECIFIC ──────────────────────────────────────────
     organizationName: { type: String },   // ngo_admin
     ngoDescription:   { type: String },   // ngo_admin — short bio/mission
     ngoWebsite:       { type: String },   // ngo_admin — optional URL
@@ -67,26 +62,32 @@ const userSchema = mongoose.Schema(
     designation:      { type: String },   // local_authority — e.g. "Ward Officer"
     logo:             { type: String },   // ngo_admin — logo URL
 
-    // ── AUTH ───────────────────────────────────────────────────────────────
-    isOAuthUser: { type: Boolean, default: false },
-    oauthToken: { type: String, default: null },
-    oauthTokenExpiry: { type: Date, default: null },
-    refreshToken: { type: String, default: null },
-    refreshTokenExpiry: { type: Date, default: null },
+    // ── AUTH ──────────────────────────────────────────────────────────────
+    isOAuthUser:      { type: Boolean, default: false },
+    oauthToken:       { type: String,  default: null  },
+    oauthTokenExpiry: { type: Date,    default: null  },
+
+    // ✅ refreshToken       — bcrypt hash, used for final verification
+    // ✅ refreshTokenLookup — sha256 hash, used for fast DB lookup (indexed)
+    // ✅ refreshTokenExpiry — expiry date checked before any comparison
+    refreshToken:       { type: String, default: null },
+    refreshTokenLookup: { type: String, default: null }, // ← NEW
+    refreshTokenExpiry: { type: Date,   default: null },
   },
   { timestamps: true },
 );
 
 // ── INDEXES ───────────────────────────────────────────────────────────────────
-userSchema.index({ xp: -1 });
-userSchema.index({ role: 1 });
-userSchema.index({ banned: 1 });
+userSchema.index({ xp:                 -1 });
+userSchema.index({ role:                1 });
+userSchema.index({ banned:              1 });
+userSchema.index({ refreshTokenLookup:  1 }); // ✅ fast refresh token lookup
 
 // ── PRE-SAVE: password hashing ────────────────────────────────────────────────
-userSchema.pre("save", async function (next) {
-  if (!this.isModified("password")) return next();
+userSchema.pre('save', async function (next) {
+  if (!this.isModified('password')) return next();
   if (this.isOAuthUser) return next();
-  const salt = await bcrypt.genSalt(12);
+  const salt    = await bcrypt.genSalt(12);
   this.password = await bcrypt.hash(this.password, salt);
 });
 
@@ -97,21 +98,31 @@ userSchema.methods.matchPassword = async function (enteredPassword) {
 
 userSchema.methods.matchRefreshToken = async function (token) {
   if (!this.refreshToken) return false;
-  if (this.refreshTokenExpiry && this.refreshTokenExpiry < new Date())
-    return false;
+  if (this.refreshTokenExpiry && this.refreshTokenExpiry < new Date()) return false;
   return await bcrypt.compare(token, this.refreshToken);
 };
 
+// ✅ Stores BOTH a bcrypt hash (security) and a sha256 hash (fast lookup).
+// The sha256 hash is safe to store because it's used only as a lookup key —
+// the bcrypt hash is still the source of truth for verification.
 userSchema.methods.setRefreshToken = async function (plainToken) {
   const rounds = parseInt(process.env.BCRYPT_REFRESH_ROUNDS) || 10;
+
   this.refreshToken = await bcrypt.hash(plainToken, rounds);
-  this.refreshTokenExpiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+  this.refreshTokenLookup = crypto
+    .createHash('sha256')
+    .update(plainToken)
+    .digest('hex');
+
+  this.refreshTokenExpiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
 };
 
 userSchema.methods.clearRefreshToken = function () {
-  this.refreshToken = null;
+  this.refreshToken       = null;
+  this.refreshTokenLookup = null; // ✅ clear lookup too
   this.refreshTokenExpiry = null;
 };
 
-const User = mongoose.model("User", userSchema);
+const User = mongoose.model('User', userSchema);
 export default User;

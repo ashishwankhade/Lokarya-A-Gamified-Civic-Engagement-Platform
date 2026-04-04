@@ -3,9 +3,7 @@ import axios from 'axios';
 const api = axios.create({
   baseURL:         import.meta.env.VITE_API_URL,
   withCredentials: true,
-  timeout:         15000, // FIX: increased from 10s → 15s
-                          // logout now does a DB call (clears refresh token)
-                          // and bcrypt compare on refresh also takes longer
+  timeout:         15000,
 });
 
 // Routes where 401 is completely normal — NEVER attempt a token refresh
@@ -36,16 +34,8 @@ api.interceptors.response.use(
     const requestUrl = original?.url ?? '';
 
     // ── 403 handling ──────────────────────────────────────────────────────
-    // FIX: split banned vs. other 403s.
-    // Before: ALL 403s redirected to /unauthorized — including banned users
-    // who got a confusing generic page with no explanation.
-    // Now: banned users are force-logged-out and sent to /login?reason=banned
-    // so the login page can show a clear "account suspended" message.
     if (status === 403) {
       if (message.toLowerCase().includes('suspended') || message.toLowerCase().includes('banned')) {
-        // Wipe local auth state — cookies are httpOnly so we can't clear them
-        // directly, but the backend already cleared the refresh token in DB.
-        // Redirecting to login stops further requests.
         window.location.href = '/login?reason=banned';
       } else if (window.location.pathname !== '/unauthorized') {
         window.location.href = '/unauthorized';
@@ -77,8 +67,8 @@ api.interceptors.response.use(
         return api(original);
       } catch (refreshError) {
         processQueue(refreshError);
-        if (window.location.pathname !== '/' && window.location.pathname !== '/login')
-          window.location.href = '/';
+        // ✅ Fire event — AuthContext handles logout + redirect cleanly
+        window.dispatchEvent(new Event('auth:logout'));
         return Promise.reject(refreshError);
       } finally {
         isRefreshing = false;
