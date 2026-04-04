@@ -1,25 +1,12 @@
 /**
  * privilegedAuthController.js
  * Path: backend-lokarya/src/controllers/privilegedAuthController.js
- *
- * Creates ngo_admin and local_authority accounts.
- * Citizens self-register via /api/auth/register.
- * These roles are admin-provisioned only — no self-registration.
- *
- * Routes (all protected, super_admin only):
- *   POST   /api/admin/users/create          ← createPrivilegedUser
- *   GET    /api/admin/users/create/vibhags  ← getVibhags  (dropdown data)
- *
- * IMPORTANT: register this route in adminRoutes.js BEFORE router.get('/users/:id')
- * so the static /users/create path is not swallowed by the :id param.
  */
 
 import asyncHandler from '../utils/asyncHandler.js';
 import User         from '../models/User.js';
 import { sendNotification } from '../utils/notificationSystem.js';
 
-// ── NAGPUR VIBHAGS ────────────────────────────────────────────────────────────
-// Single source of truth — used by this controller and surfaced to the frontend
 export const NAGPUR_VIBHAGS = [
   'Dharampeth', 'Lakadganj', 'Mangalwari', 'Sadar', 'Ashi Nagar',
   'Hanuman Nagar', 'Gandhibagh', 'Nehru Nagar', 'Sukrawari',
@@ -27,63 +14,53 @@ export const NAGPUR_VIBHAGS = [
   'Ramtek', 'Umred', 'Katol', 'Mauda', 'Parseoni',
 ];
 
-// ── VALIDATION HELPERS ────────────────────────────────────────────────────────
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-// ═════════════════════════════════════════════════════════════════════════════
-// GET /api/admin/users/create/vibhags
-// Returns the vibhag list so the frontend doesn't hardcode it.
-// ═════════════════════════════════════════════════════════════════════════════
 export const getVibhags = asyncHandler(async (req, res) => {
   res.json(NAGPUR_VIBHAGS);
 });
 
-// ═════════════════════════════════════════════════════════════════════════════
-// POST /api/admin/users/create
-//
-// Body (ngo_admin):
-//   { name, email, password, role: 'ngo_admin', organizationName, phone? }
-//
-// Body (local_authority):
-//   { name, email, password, role: 'local_authority', vibhag, department?, phone? }
-// ═════════════════════════════════════════════════════════════════════════════
 export const createPrivilegedUser = asyncHandler(async (req, res) => {
   const {
-    name, email, password, role,
-    organizationName,   // ngo_admin   — required
-    vibhag,             // local_authority — required
-    department,         // local_authority — optional
-    phone,              // both — optional
+    name, email, password, role, phone,
+
+    // ngo_admin fields
+    organizationName,
+    ngoDescription,
+    ngoWebsite,
+
+    // local_authority fields
+    vibhag,
+    department,
+    designation,
   } = req.body;
 
-  // ── 1. Basic presence checks ──────────────────────────────────────────────
+  // ── 1. Basic presence ────────────────────────────────────────────────────
   if (!name?.trim())  { res.status(400); throw new Error('name is required.');     }
   if (!email?.trim()) { res.status(400); throw new Error('email is required.');    }
   if (!password)      { res.status(400); throw new Error('password is required.'); }
   if (!role)          { res.status(400); throw new Error('role is required.');     }
 
-  // ── 2. Role whitelist ─────────────────────────────────────────────────────
+  // ── 2. Role whitelist ────────────────────────────────────────────────────
   const ALLOWED_ROLES = ['ngo_admin', 'local_authority'];
   if (!ALLOWED_ROLES.includes(role)) {
     res.status(400);
-    throw new Error(
-      `Only ngo_admin and local_authority can be created here. Received: "${role}".`
-    );
+    throw new Error(`Only ngo_admin and local_authority can be created here. Received: "${role}".`);
   }
 
-  // ── 3. Email format ───────────────────────────────────────────────────────
+  // ── 3. Email format ──────────────────────────────────────────────────────
   if (!EMAIL_RE.test(email.trim())) {
     res.status(400);
     throw new Error('Invalid email address format.');
   }
 
-  // ── 4. Password strength ──────────────────────────────────────────────────
+  // ── 4. Password strength ─────────────────────────────────────────────────
   if (password.length < 8) {
     res.status(400);
     throw new Error('Password must be at least 8 characters.');
   }
 
-  // ── 5. Role-specific required fields ─────────────────────────────────────
+  // ── 5. Role-specific validation ──────────────────────────────────────────
   if (role === 'ngo_admin' && !organizationName?.trim()) {
     res.status(400);
     throw new Error('organizationName is required for ngo_admin accounts.');
@@ -100,46 +77,52 @@ export const createPrivilegedUser = asyncHandler(async (req, res) => {
     }
   }
 
-  // ── 6. Duplicate email ────────────────────────────────────────────────────
+  // ── 6. Duplicate email ───────────────────────────────────────────────────
   const exists = await User.findOne({ email: email.toLowerCase().trim() });
   if (exists) {
     res.status(409);
     throw new Error(`An account with email "${email}" already exists.`);
   }
 
-  // ── 7. Create — password hashed by User.js pre-save hook (bcrypt 12) ─────
+  // ── 7. Build userData ────────────────────────────────────────────────────
   const userData = {
     name:        name.trim(),
     email:       email.toLowerCase().trim(),
-    password,                                 // hashed by pre-save
+    password,
     role,
-    isVerified:  true,                        // admin-provisioned = auto-verified
+    isVerified:  true,
     isOAuthUser: false,
     xp:          0,
     banned:      false,
-    phone:       phone?.trim() || undefined,
+    phone:       phone?.trim() || null,
   };
 
-  // Role-specific fields
+  // NGO Admin fields
   if (role === 'ngo_admin') {
     userData.organizationName = organizationName.trim();
-  }
-  if (role === 'local_authority') {
-    userData.vibhag     = vibhag.trim();
-    userData.department = department?.trim() || undefined;
+    if (ngoDescription?.trim()) userData.ngoDescription = ngoDescription.trim();
+    if (ngoWebsite?.trim())     userData.ngoWebsite     = ngoWebsite.trim();
   }
 
+  // Local Authority fields
+  if (role === 'local_authority') {
+    userData.vibhag = vibhag.trim();
+    if (department?.trim())  userData.department  = department.trim();
+    if (designation?.trim()) userData.designation = designation.trim();
+  }
+
+  // ── 8. Create ────────────────────────────────────────────────────────────
   const user = await User.create(userData);
 
-  // ── 8. In-app notification ────────────────────────────────────────────────
+  // ── 9. Notification ──────────────────────────────────────────────────────
   const roleLabel = role === 'ngo_admin' ? 'NGO Admin' : 'Local Authority';
   await sendNotification(
     user._id,
     `Welcome to Lokarya! Your ${roleLabel} account has been created by the platform admin. Log in with: ${email}`,
     'success'
-  ).catch(() => {}); // non-fatal
+  ).catch(() => {});
 
-  // ── 9. Return (strip password) ────────────────────────────────────────────
+  // ── 10. Return (strip password) ──────────────────────────────────────────
   const safe = user.toObject();
   delete safe.password;
 

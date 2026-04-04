@@ -1,21 +1,23 @@
 import asyncHandler    from '../utils/asyncHandler.js';
 import Complaint       from '../models/Complaint.js';
 import FieldWorker     from '../models/FieldWorker.js';
+import User            from '../models/User.js';
 import { getDistanceFromLatLonInM } from '../utils/locationUtils.js';
 import { sendNotification }         from '../utils/notificationSystem.js';
-import { awardXp }     from '../services/xpEngineService.js';
-import { sendSMS, smsTemplates }    from '../services/smsService.js';
+import { awardXp }                  from '../services/xpEngineService.js';
 import {
   notifyCitizenComplaintFiled,
   notifyWorkerAssigned,
   notifyCitizenComplaintResolved,
-} from '../services/twilioWhatsAppService.js'; // ✅ Twilio WhatsApp — 3 triggers only
+} from '../services/twilioWhatsAppService.js';
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 // ─── STEP 1 & 2: Citizen files complaint ──────────────────────────────────────
 const createComplaint = asyncHandler(async (req, res) => {
   const { title, description, category, vibhag, location: locationString } = req.body;
+    // console.log('📁 req.file:', req.file);
+
 
   let location = {};
   try {
@@ -26,8 +28,10 @@ const createComplaint = asyncHandler(async (req, res) => {
     res.status(400); throw new Error('Invalid location format.');
   }
 
-  const image = req.file ? req.file.path : null;
+  // ✅ FIX: prefer Cloudinary secure_url, fall back to path
+  const image = req.file ? (req.file.secure_url || req.file.path) : null;
 
+  // ── Duplicate detection within 50 m ──────────────────────────────────────
   const DUPLICATE_RADIUS = 50;
   const active = await Complaint.find({ category, status: { $in: ['pending', 'in_progress'] } });
   let duplicate = null;
@@ -61,16 +65,22 @@ const createComplaint = asyncHandler(async (req, res) => {
     });
   }
 
+  // ── Create new complaint ──────────────────────────────────────────────────
   const complaint = await Complaint.create({
     user: req.user._id, title, description, category, vibhag, location, image,
     supportedBy: [req.user._id], upvotes: [req.user._id], status: 'pending',
   });
 
-  // ✅ TRIGGER 1 — WhatsApp: Citizen notified when complaint is filed
   if (req.user.phone) {
     await notifyCitizenComplaintFiled(req.user.phone, complaint.ticketId, complaint.title);
-    await sendSMS(req.user.phone, smsTemplates.complaintFiled(complaint.ticketId)); // SMS fallback kept
   }
+
+  await sendNotification(
+    req.user._id,
+    `Your complaint ${complaint.ticketId} has been filed successfully.`,
+    'success',
+    complaint._id
+  );
 
   await awardXp(req.user._id, 'file_complaint', { complaintId: complaint._id });
 
@@ -85,6 +95,7 @@ const createComplaint = asyncHandler(async (req, res) => {
 // ─── STEP 3: Assign Ward Officer ──────────────────────────────────────────────
 const assignOfficer = asyncHandler(async (req, res) => {
   const { officerName, officerDesignation, officerContact, officerUserId } = req.body;
+
   const complaint = await Complaint.findById(req.params.id);
   if (!complaint) { res.status(404); throw new Error('Complaint not found'); }
 
@@ -104,16 +115,18 @@ const assignOfficer = asyncHandler(async (req, res) => {
 
   await sendNotification(
     complaint.user,
-    `Officer ${officerName} assigned to your complaint ${complaint.ticketId}.`,
+    `Officer ${officerName} has been assigned to your complaint ${complaint.ticketId}.`,
     'info',
     complaint._id
   );
+
   res.json(complaint);
 });
 
 // ─── STEP 4: Assign Field Worker + magic token ────────────────────────────────
 const assignWorker = asyncHandler(async (req, res) => {
   const { workerId } = req.body;
+
   const complaint = await Complaint.findById(req.params.id);
   if (!complaint) { res.status(404); throw new Error('Complaint not found'); }
 
@@ -133,7 +146,7 @@ const assignWorker = asyncHandler(async (req, res) => {
   complaint.status         = 'worker_assigned';
   complaint.timeline.push({
     status:    'worker_assigned',
-    message:   `Field worker ${worker.name} (${worker.employeeId}) assigned directly. WhatsApp sent.`,
+    message:   `Field worker ${worker.name} (${worker.employeeId}) assigned. WhatsApp sent.`,
     updatedBy: req.user._id,
   });
   await complaint.save();
@@ -141,42 +154,51 @@ const assignWorker = asyncHandler(async (req, res) => {
   worker.activeComplaints.push(complaint._id);
   await worker.save();
 
-  // ✅ TRIGGER 2 — WhatsApp: Field worker gets task details + magic upload link
   await notifyWorkerAssigned(worker.phone, complaint, magicLink);
+
+  await sendNotification(
+    complaint.user,
+    `A field worker has been assigned to your complaint ${complaint.ticketId}.`,
+    'info',
+    complaint._id
+  );
 
   res.json({ message: 'Worker assigned and WhatsApp sent.', complaint });
 });
 
-// ─── STEP 6: Worker webhook ───────────────────────────────────────────────────
+// ─── STEP 6: Worker webhook (WhatsApp reply "1" = task accepted) ──────────────
 const workerWebhook = asyncHandler(async (req, res) => {
   const { From, Body } = req.body;
   const phone   = From?.replace('whatsapp:', '').trim();
   const message = Body?.trim();
+
   if (message !== '1') return res.status(200).send('OK');
 
   const complaint = await Complaint.findOne({ workerPhone: phone, status: 'worker_assigned' });
   if (!complaint) return res.status(200).send('OK');
 
   complaint.status = 'in_progress';
-  complaint.timeline.push({ status: 'worker_accepted', message: 'Field worker accepted the task.' });
+  complaint.timeline.push({
+    status:  'worker_accepted',
+    message: 'Field worker accepted the task.',
+  });
   await complaint.save();
 
   if (complaint.user) {
     const worker = await FieldWorker.findById(complaint.assignedWorker);
+
     await sendNotification(
       complaint.user,
-      `Worker ${worker?.name || 'Field staff'} is on the way to ${complaint.ticketId}.`,
+      `Field worker ${worker?.name || 'Field staff'} is on the way for ${complaint.ticketId}.`,
       'info',
       complaint._id
     );
-    const User = (await import('../models/User.js')).default;
-    const user = await User.findById(complaint.user);
-    if (user?.phone) await sendSMS(user.phone, smsTemplates.workerAccepted(complaint.ticketId, worker?.name || 'Field staff'));
   }
+
   res.status(200).send('OK');
 });
 
-// ─── STEP 7: Magic upload ─────────────────────────────────────────────────────
+// ─── STEP 7: Magic upload (worker uploads resolution photo via link) ───────────
 const magicUpload = asyncHandler(async (req, res) => {
   const { token } = req.query;
   if (!token) { res.status(400); throw new Error('Token required'); }
@@ -187,7 +209,8 @@ const magicUpload = asyncHandler(async (req, res) => {
   }
   if (!req.file) { res.status(400); throw new Error('Photo upload required'); }
 
-  complaint.resolutionImage  = req.file.path;
+  // ✅ FIX: prefer Cloudinary secure_url, fall back to path
+  complaint.resolutionImage  = req.file.secure_url || req.file.path;
   complaint.magicToken       = null;
   complaint.magicTokenExpiry = null;
   complaint.status           = 'in_progress';
@@ -200,17 +223,19 @@ const magicUpload = asyncHandler(async (req, res) => {
   if (complaint.assignedOfficer?.userId) {
     await sendNotification(
       complaint.assignedOfficer.userId,
-      `Proof uploaded for ${complaint.ticketId}. Please review and resolve.`,
+      `Proof photo uploaded for ${complaint.ticketId}. Please review and resolve.`,
       'info',
       complaint._id
     );
   }
+
   res.json({ message: 'Proof uploaded successfully. Officer has been notified.' });
 });
 
-// ─── STEP 8: Resolve ──────────────────────────────────────────────────────────
+// ─── STEP 8: Resolve complaint ────────────────────────────────────────────────
 const resolveComplaint = asyncHandler(async (req, res) => {
   const { resolutionNote } = req.body;
+
   const complaint = await Complaint.findById(req.params.id);
   if (!complaint) { res.status(404); throw new Error('Complaint not found'); }
 
@@ -227,13 +252,10 @@ const resolveComplaint = asyncHandler(async (req, res) => {
 
   await awardXp(complaint.user, 'complaint_resolved', { complaintId: complaint._id });
 
-  const User = (await import('../models/User.js')).default;
   const user = await User.findById(complaint.user);
 
-  // ✅ TRIGGER 3 — WhatsApp: Citizen notified when complaint is resolved
   if (user?.phone) {
     await notifyCitizenComplaintResolved(user.phone, complaint.ticketId, complaint.resolutionNote);
-    await sendSMS(user.phone, smsTemplates.complaintResolved(complaint.ticketId)); // SMS fallback kept
   }
 
   await sendNotification(
@@ -246,7 +268,7 @@ const resolveComplaint = asyncHandler(async (req, res) => {
   res.json(complaint);
 });
 
-// ─── STEP 9: Rate ─────────────────────────────────────────────────────────────
+// ─── STEP 9: Citizen rates the resolution ─────────────────────────────────────
 const rateComplaint = asyncHandler(async (req, res) => {
   const { rating, note } = req.body;
   if (!rating || rating < 1 || rating > 5) {
@@ -266,7 +288,7 @@ const rateComplaint = asyncHandler(async (req, res) => {
     complaint.status = 'closed';
     complaint.timeline.push({
       status:    'closed',
-      message:   `Citizen rated ${rating}★ — closed.`,
+      message:   `Citizen rated ${rating}★ — complaint closed.`,
       updatedBy: complaint.user,
     });
   } else {
@@ -277,17 +299,15 @@ const rateComplaint = asyncHandler(async (req, res) => {
       message:   `Citizen rated ${rating}★ — escalated for re-review.`,
       updatedBy: complaint.user,
     });
+
     if (complaint.assignedOfficer?.userId) {
       await sendNotification(
         complaint.assignedOfficer.userId,
-        `Complaint ${complaint.ticketId} escalated. Citizen rated ${rating}★.`,
+        `Complaint ${complaint.ticketId} has been escalated. Citizen rated ${rating}★.`,
         'error',
         complaint._id
       );
     }
-    const User = (await import('../models/User.js')).default;
-    const user = await User.findById(complaint.user);
-    if (user?.phone) await sendSMS(user.phone, smsTemplates.complaintEscalated(complaint.ticketId));
   }
 
   await complaint.save();
@@ -297,26 +317,68 @@ const rateComplaint = asyncHandler(async (req, res) => {
   res.json(complaint);
 });
 
-// ─── Legacy status update ─────────────────────────────────────────────────────
+// ─── Legacy: manual status update (admin / authority override) ────────────────
 const updateComplaintStatus = asyncHandler(async (req, res) => {
   const { status, message } = req.body;
+
   const complaint = await Complaint.findById(req.params.id);
   if (!complaint) { res.status(404); throw new Error('Complaint not found'); }
+
   complaint.status = status;
-  complaint.timeline.push({ status, message: message || 'Status updated.', updatedBy: req.user._id });
+  complaint.timeline.push({
+    status,
+    message:   message || 'Status updated.',
+    updatedBy: req.user._id,
+  });
   await complaint.save();
+
   res.json(complaint);
 });
 
-// ─── Get my complaints ────────────────────────────────────────────────────────
+// ─── Get my complaints (citizen) — enriched with vibhag authority ─────────────
 const getMyComplaints = asyncHandler(async (req, res) => {
   const complaints = await Complaint.find({ user: req.user._id })
     .populate('assignedWorker', 'name phone employeeId')
     .sort({ createdAt: -1 });
-  res.json(complaints);
+
+  const unassignedVibhags = [
+    ...new Set(
+      complaints
+        .filter(c => !c.assignedOfficer?.name && c.vibhag)
+        .map(c => c.vibhag)
+    ),
+  ];
+
+  const authorities = unassignedVibhags.length
+    ? await User.find({
+        role:   'local_authority',
+        vibhag: { $in: unassignedVibhags },
+      }).select('name designation vibhag phone')
+    : [];
+
+  const authorityByVibhag = {};
+  for (const auth of authorities) {
+    if (!authorityByVibhag[auth.vibhag]) {
+      authorityByVibhag[auth.vibhag] = {
+        name:        auth.name,
+        designation: auth.designation || 'Ward Officer',
+        contact:     auth.phone || null,
+      };
+    }
+  }
+
+  const enriched = complaints.map(c => {
+    const obj = c.toObject();
+    if (!obj.assignedOfficer?.name && obj.vibhag && authorityByVibhag[obj.vibhag]) {
+      obj._vibhagAuthority = authorityByVibhag[obj.vibhag];
+    }
+    return obj;
+  });
+
+  res.json(enriched);
 });
 
-// ─── Get all complaints (authority / admin) ───────────────────────────────────
+// ─── Get all complaints (authority / admin view) ──────────────────────────────
 const getComplaints = asyncHandler(async (req, res) => {
   const { status, vibhag } = req.query;
   const query = {};

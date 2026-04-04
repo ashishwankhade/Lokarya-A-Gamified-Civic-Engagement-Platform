@@ -1,10 +1,10 @@
 /**
  * app.js  —  Lokarya Backend
- */
+*/
 
 import express      from 'express';
 import cors         from 'cors';
-import dotenv       from 'dotenv';
+// import dotenv       from 'dotenv';
 import passport     from 'passport';
 import cookieParser from 'cookie-parser';
 import helmet       from 'helmet';
@@ -13,6 +13,7 @@ import hpp          from 'hpp';
 import path         from 'path';
 import { fileURLToPath } from 'url';
 
+// dotenv.config();
 import './config/passport.js';
 
 // ── ROUTES ───────────────────────────────────────────────────────────────────
@@ -32,7 +33,6 @@ export { seedXpRules, seedBadges };                // ← ADDED seedBadges to ex
 // ── ERROR MIDDLEWARE ─────────────────────────────────────────────────────────
 import { errorHandler } from './middlewares/errorMiddleware.js';
 
-dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);

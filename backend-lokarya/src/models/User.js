@@ -18,8 +18,6 @@ const userSchema = mongoose.Schema(
     location: { type: String, default: "" },
 
     // ── CONTACT ───────────────────────────────────────────────────────────
-    // Stored as a plain string so it works for IN (+91) or any country code.
-    // Validate format on the frontend / with a validator middleware.
     phone: { type: String, default: null },
 
     // ── ROLES ─────────────────────────────────────────────────────────────
@@ -61,17 +59,18 @@ const userSchema = mongoose.Schema(
     banned: { type: Boolean, default: false },
 
     // ── ORG / AUTHORITY SPECIFIC ───────────────────────────────────────────
-    organizationName: { type: String },
-    department: { type: String },
-    vibhag: { type: String },
-    logo: { type: String },
+    organizationName: { type: String },   // ngo_admin
+    ngoDescription:   { type: String },   // ngo_admin — short bio/mission
+    ngoWebsite:       { type: String },   // ngo_admin — optional URL
+    department:       { type: String },   // local_authority
+    vibhag:           { type: String },   // local_authority
+    designation:      { type: String },   // local_authority — e.g. "Ward Officer"
+    logo:             { type: String },   // ngo_admin — logo URL
 
     // ── AUTH ───────────────────────────────────────────────────────────────
     isOAuthUser: { type: Boolean, default: false },
-    // ── OAUTH ONE-TIME TOKEN (for cross-origin Google login) ───────────────
     oauthToken: { type: String, default: null },
     oauthTokenExpiry: { type: Date, default: null },
-    // ── REFRESH TOKEN ──────────────────────────────────────────────────────
     refreshToken: { type: String, default: null },
     refreshTokenExpiry: { type: Date, default: null },
   },

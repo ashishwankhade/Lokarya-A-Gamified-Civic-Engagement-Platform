@@ -1,15 +1,6 @@
 /**
  * UserModals.jsx
  * Path: src/dashboards/admin/UserModals.jsx
- *
- * Exports four portal modals used by UserManagement.jsx:
- *   - CreateUserModal  — provisions ngo_admin or local_authority
- *   - AwardXpModal     — manually award XP to any user
- *   - ChangeRoleModal  — change any non-super_admin user's role
- *   - RevokeXpModal    — deduct XP with mandatory reason + audit trail
- *
- * Usage:
- *   import { CreateUserModal, AwardXpModal, ChangeRoleModal, RevokeXpModal } from './UserModals';
  */
 
 import React, { useState } from 'react';
@@ -18,13 +9,12 @@ import { createPortal } from 'react-dom';
 import {
   X, UserPlus, Building2, Shield, Eye, EyeOff,
   MapPin, Loader2, CheckCircle2, Zap, RefreshCw, MinusCircle,
+  Phone, Briefcase, Globe, FileText, Star,
 } from 'lucide-react';
 import api      from '../../api/axios';
 import { toast } from 'react-toastify';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DESIGN TOKENS
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── DESIGN TOKENS ────────────────────────────────────────────────────────────
 const NV = '#0f2c4a';
 const V  = '#7c3aed';
 const G  = '#059669';
@@ -46,9 +36,7 @@ const ROLE_OPTIONS = [
   { value: 'field_worker',    label: 'Field Worker',  color: '#475569', desc: 'On-ground complaint resolution' },
 ];
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SHARED PRIMITIVES
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── SHARED PRIMITIVES ────────────────────────────────────────────────────────
 const inputCss = (active, accentColor = V) => ({
   width: '100%', boxSizing: 'border-box',
   padding: '11px 14px', borderRadius: 12,
@@ -67,7 +55,20 @@ const Label = ({ children, required }) => (
   </label>
 );
 
-// Shared modal shell — handles backdrop, spring animation, scroll
+// ─── FIELD ROW with icon support ──────────────────────────────────────────────
+const IconInput = ({ icon: Icon, iconColor = '#94a3b8', children }) => (
+  <div style={{ position: 'relative' }}>
+    <Icon size={13} style={{
+      position: 'absolute', left: 13, top: '50%',
+      transform: 'translateY(-50%)', color: iconColor, pointerEvents: 'none', zIndex: 1,
+    }} />
+    {React.cloneElement(children, {
+      style: { ...children.props.style, paddingLeft: 34 },
+    })}
+  </div>
+);
+
+// ─── MODAL SHELL ──────────────────────────────────────────────────────────────
 const ModalShell = ({ onClose, busy, children, maxWidth = 520 }) =>
   createPortal(
     <div style={{ position: 'fixed', inset: 0, zIndex: 9999,
@@ -89,7 +90,7 @@ const ModalShell = ({ onClose, busy, children, maxWidth = 520 }) =>
     document.body
   );
 
-// Modal header row
+// ─── MODAL HEADER ─────────────────────────────────────────────────────────────
 const ModalHeader = ({ icon: Icon, iconBg, iconColor, title, sub, onClose, busy }) => (
   <div style={{ display: 'flex', alignItems: 'center',
     justifyContent: 'space-between', marginBottom: 24 }}>
@@ -112,7 +113,7 @@ const ModalHeader = ({ icon: Icon, iconBg, iconColor, title, sub, onClose, busy 
   </div>
 );
 
-// Footer with cancel + primary button
+// ─── MODAL FOOTER ─────────────────────────────────────────────────────────────
 const ModalFooter = ({ onClose, busy, onSubmit, label, color = V, icon: Icon = UserPlus, disabled = false }) => (
   <div style={{ display: 'flex', gap: 10, marginTop: 24 }}>
     <button onClick={onClose} disabled={busy}
@@ -140,9 +141,7 @@ const ModalFooter = ({ onClose, busy, onSubmit, label, color = V, icon: Icon = U
   </div>
 );
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ROLE SELECTOR CARD (used in CreateUserModal)
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── ROLE CARD ────────────────────────────────────────────────────────────────
 const RoleCard = ({ value, selected, onSelect, Icon, label, desc, color, bg }) => (
   <button onClick={() => onSelect(value)}
     style={{ flex: 1, padding: '14px 16px', borderRadius: 14, cursor: 'pointer',
@@ -163,6 +162,18 @@ const RoleCard = ({ value, selected, onSelect, Icon, label, desc, color, bg }) =
   </button>
 );
 
+// ─── SECTION DIVIDER ─────────────────────────────────────────────────────────
+const SectionBox = ({ color, bg, borderColor, title, children }) => (
+  <div style={{ background: bg, border: `2px solid ${borderColor}`,
+    borderRadius: 14, padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <p style={{ fontSize: 11, fontWeight: 800, color,
+      textTransform: 'uppercase', letterSpacing: '0.07em', margin: 0 }}>
+      {title}
+    </p>
+    {children}
+  </div>
+);
+
 // ═════════════════════════════════════════════════════════════════════════════
 // 1. CREATE USER MODAL
 // ═════════════════════════════════════════════════════════════════════════════
@@ -173,30 +184,51 @@ export const CreateUserModal = ({ onClose, onCreated }) => {
   const [focused, setFocused] = useState('');
 
   const [form, setForm] = useState({
-    name: '', email: '', password: '',
-    organizationName: '', vibhag: '', department: '', phone: '',
+    // Common
+    name: '', email: '', password: '', phone: '',
+
+    // NGO Admin
+    organizationName: '',
+    ngoDescription:   '',
+    ngoWebsite:       '',
+
+    // Local Authority
+    vibhag:      '',
+    department:  '',
+    designation: '',
   });
 
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
-  const fp  = (id) => ({
+
+  const fp = (id, accent) => ({
     onFocus: () => setFocused(id),
     onBlur:  () => setFocused(''),
-    style:   inputCss(focused === id),
+    style:   inputCss(focused === id, accent),
   });
 
-  // Reset role-specific fields when switching roles
   const switchRole = (r) => {
     setRole(r);
-    setForm(f => ({ ...f, organizationName: '', vibhag: '', department: '' }));
+    setForm(f => ({
+      ...f,
+      organizationName: '', ngoDescription: '', ngoWebsite: '',
+      vibhag: '', department: '', designation: '',
+    }));
   };
 
   const submit = async () => {
-    if (!form.name.trim())                                      { toast.error('Name is required.');             return; }
-    if (!form.email.trim())                                     { toast.error('Email is required.');            return; }
-    if (!form.password)                                         { toast.error('Password is required.');         return; }
-    if (form.password.length < 8)                              { toast.error('Password must be ≥ 8 chars.');   return; }
-    if (role === 'ngo_admin' && !form.organizationName.trim()) { toast.error('Organisation name required.');   return; }
-    if (role === 'local_authority' && !form.vibhag)            { toast.error('Please select a vibhag.');       return; }
+    // Common validation
+    if (!form.name.trim())     { toast.error('Name is required.');           return; }
+    if (!form.email.trim())    { toast.error('Email is required.');          return; }
+    if (!form.password)        { toast.error('Password is required.');       return; }
+    if (form.password.length < 8) { toast.error('Password must be ≥ 8 chars.'); return; }
+
+    // Role-specific validation
+    if (role === 'ngo_admin' && !form.organizationName.trim()) {
+      toast.error('Organisation name is required.'); return;
+    }
+    if (role === 'local_authority' && !form.vibhag) {
+      toast.error('Please select a Vibhag.'); return;
+    }
 
     setBusy(true);
     try {
@@ -210,7 +242,7 @@ export const CreateUserModal = ({ onClose, onCreated }) => {
   };
 
   return (
-    <ModalShell onClose={onClose} busy={busy} maxWidth={540}>
+    <ModalShell onClose={onClose} busy={busy} maxWidth={560}>
       <ModalHeader
         icon={UserPlus} iconBg="#f5f3ff" iconColor={V}
         title="Create Account"
@@ -232,7 +264,7 @@ export const CreateUserModal = ({ onClose, onCreated }) => {
       </div>
 
       {/* Common fields */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 14 }}>
         <div>
           <Label required>Full Name</Label>
           <input value={form.name} onChange={set('name')}
@@ -264,71 +296,108 @@ export const CreateUserModal = ({ onClose, onCreated }) => {
 
         <div>
           <Label>Phone (optional)</Label>
-          <input type="tel" value={form.phone} onChange={set('phone')}
-            placeholder="+91 98765 43210" {...fp('phone')} />
+          <IconInput icon={Phone} iconColor="#94a3b8">
+            <input type="tel" value={form.phone} onChange={set('phone')}
+              placeholder="+91 98765 43210"
+              onFocus={() => setFocused('phone')} onBlur={() => setFocused('')}
+              style={inputCss(focused === 'phone')} />
+          </IconInput>
         </div>
+      </div>
 
-        {/* NGO-specific */}
-        <AnimatePresence>
-          {role === 'ngo_admin' && (
-            <motion.div key="ngo"
-              initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }} style={{ overflow: 'hidden' }}>
-              <div style={{ background: '#ecfdf5', border: '2px solid #a7f3d0',
-                borderRadius: 14, padding: 16 }}>
-                <p style={{ fontSize: 11, fontWeight: 800, color: '#065f46',
-                  textTransform: 'uppercase', letterSpacing: '0.07em', margin: '0 0 12px' }}>
-                  NGO Details
-                </p>
+      {/* ── NGO Admin specific fields ──────────────────────────────────────── */}
+      <AnimatePresence>
+        {role === 'ngo_admin' && (
+          <motion.div key="ngo"
+            initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }} style={{ overflow: 'hidden', marginBottom: 14 }}>
+            <SectionBox
+              color="#065f46" bg="#ecfdf5"
+              borderColor="#a7f3d0" title="NGO Details">
+
+              <div>
                 <Label required>Organisation Name</Label>
-                <input value={form.organizationName} onChange={set('organizationName')}
-                  placeholder="e.g. Nagpur Green Foundation"
-                  onFocus={() => setFocused('org')} onBlur={() => setFocused('')}
-                  style={inputCss(focused === 'org')} />
+                <IconInput icon={Building2} iconColor={G}>
+                  <input value={form.organizationName} onChange={set('organizationName')}
+                    placeholder="e.g. Nagpur Green Foundation"
+                    onFocus={() => setFocused('org')} onBlur={() => setFocused('')}
+                    style={inputCss(focused === 'org', G)} />
+                </IconInput>
               </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
 
-        {/* Authority-specific */}
-        <AnimatePresence>
-          {role === 'local_authority' && (
-            <motion.div key="auth"
-              initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }} style={{ overflow: 'hidden' }}>
-              <div style={{ background: '#eff6ff', border: '2px solid #bfdbfe',
-                borderRadius: 14, padding: 16,
-                display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <p style={{ fontSize: 11, fontWeight: 800, color: '#1e40af',
-                  textTransform: 'uppercase', letterSpacing: '0.07em', margin: 0 }}>
-                  Authority Details
-                </p>
-                <div>
-                  <Label required>Vibhag / Ward</Label>
-                  <div style={{ position: 'relative' }}>
-                    <MapPin size={13} style={{ position: 'absolute', left: 13,
-                      top: '50%', transform: 'translateY(-50%)', color: '#94a3b8',
-                      pointerEvents: 'none' }} />
-                    <select value={form.vibhag} onChange={set('vibhag')}
-                      onFocus={() => setFocused('vibhag')} onBlur={() => setFocused('')}
-                      style={{ ...inputCss(focused === 'vibhag'), paddingLeft: 34, cursor: 'pointer' }}>
-                      <option value="">Select vibhag…</option>
-                      {NAGPUR_VIBHAGS.map(v => <option key={v} value={v}>{v}</option>)}
-                    </select>
-                  </div>
+              <div>
+                <Label>Mission / Description (optional)</Label>
+                <textarea value={form.ngoDescription} onChange={set('ngoDescription')}
+                  rows={2} placeholder="Brief description of the NGO's mission…"
+                  onFocus={() => setFocused('ngoDesc')} onBlur={() => setFocused('')}
+                  style={{
+                    ...inputCss(focused === 'ngoDesc', G),
+                    resize: 'none', lineHeight: 1.6,
+                  }} />
+              </div>
+
+              <div>
+                <Label>Website (optional)</Label>
+                <IconInput icon={Globe} iconColor={G}>
+                  <input type="url" value={form.ngoWebsite} onChange={set('ngoWebsite')}
+                    placeholder="https://nagpurgreen.org"
+                    onFocus={() => setFocused('ngoWeb')} onBlur={() => setFocused('')}
+                    style={inputCss(focused === 'ngoWeb', G)} />
+                </IconInput>
+              </div>
+            </SectionBox>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Local Authority specific fields ───────────────────────────────── */}
+      <AnimatePresence>
+        {role === 'local_authority' && (
+          <motion.div key="auth"
+            initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }} style={{ overflow: 'hidden', marginBottom: 14 }}>
+            <SectionBox
+              color="#1e40af" bg="#eff6ff"
+              borderColor="#bfdbfe" title="Authority Details">
+
+              <div>
+                <Label required>Vibhag / Ward</Label>
+                <div style={{ position: 'relative' }}>
+                  <MapPin size={13} style={{ position: 'absolute', left: 13,
+                    top: '50%', transform: 'translateY(-50%)', color: '#94a3b8',
+                    pointerEvents: 'none', zIndex: 1 }} />
+                  <select value={form.vibhag} onChange={set('vibhag')}
+                    onFocus={() => setFocused('vibhag')} onBlur={() => setFocused('')}
+                    style={{ ...inputCss(focused === 'vibhag', BL), paddingLeft: 34, cursor: 'pointer' }}>
+                    <option value="">Select vibhag…</option>
+                    {NAGPUR_VIBHAGS.map(v => <option key={v} value={v}>{v}</option>)}
+                  </select>
                 </div>
-                <div>
-                  <Label>Department (optional)</Label>
+              </div>
+
+              <div>
+                <Label>Designation (optional)</Label>
+                <IconInput icon={Star} iconColor={BL}>
+                  <input value={form.designation} onChange={set('designation')}
+                    placeholder="e.g. Ward Officer, Corporator"
+                    onFocus={() => setFocused('desig')} onBlur={() => setFocused('')}
+                    style={inputCss(focused === 'desig', BL)} />
+                </IconInput>
+              </div>
+
+              <div>
+                <Label>Department (optional)</Label>
+                <IconInput icon={Briefcase} iconColor={BL}>
                   <input value={form.department} onChange={set('department')}
                     placeholder="e.g. Roads & Infrastructure"
                     onFocus={() => setFocused('dept')} onBlur={() => setFocused('')}
-                    style={inputCss(focused === 'dept')} />
-                </div>
+                    style={inputCss(focused === 'dept', BL)} />
+                </IconInput>
               </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
+            </SectionBox>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <ModalFooter
         onClose={onClose} busy={busy} onSubmit={submit}
@@ -339,7 +408,7 @@ export const CreateUserModal = ({ onClose, onCreated }) => {
 };
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 2. AWARD XP MODAL
+// 2. AWARD XP MODAL  (unchanged)
 // ═════════════════════════════════════════════════════════════════════════════
 export const AwardXpModal = ({ user, onClose, onDone }) => {
   const [xp,   setXp]   = useState(50);
@@ -364,7 +433,6 @@ export const AwardXpModal = ({ user, onClose, onDone }) => {
         title="Award XP" sub={`to ${user.name}`}
         onClose={onClose} busy={busy}
       />
-
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div>
           <Label>XP Amount</Label>
@@ -377,8 +445,6 @@ export const AwardXpModal = ({ user, onClose, onDone }) => {
             onFocus={e => e.target.style.borderColor = '#d97706'}
             onBlur={e  => e.target.style.borderColor = '#e2e8f0'} />
         </div>
-
-        {/* Quick amounts */}
         <div style={{ display: 'flex', gap: 8 }}>
           {[10, 25, 50, 100].map(v => (
             <button key={v} onClick={() => setXp(v)}
@@ -392,7 +458,6 @@ export const AwardXpModal = ({ user, onClose, onDone }) => {
             </button>
           ))}
         </div>
-
         <div>
           <Label>Reason (optional)</Label>
           <input value={note} onChange={e => setNote(e.target.value)}
@@ -404,7 +469,6 @@ export const AwardXpModal = ({ user, onClose, onDone }) => {
             onBlur={e  => e.target.style.borderColor = '#e2e8f0'} />
         </div>
       </div>
-
       <ModalFooter
         onClose={onClose} busy={busy} onSubmit={submit}
         label={`Award ${xp} XP`} color="#d97706" icon={Zap}
@@ -414,7 +478,7 @@ export const AwardXpModal = ({ user, onClose, onDone }) => {
 };
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 3. CHANGE ROLE MODAL
+// 3. CHANGE ROLE MODAL  (unchanged)
 // ═════════════════════════════════════════════════════════════════════════════
 export const ChangeRoleModal = ({ user, onClose, onDone }) => {
   const [role, setRole] = useState(user.role);
@@ -438,8 +502,6 @@ export const ChangeRoleModal = ({ user, onClose, onDone }) => {
         title="Change Role" sub={`Currently: ${user.name}`}
         onClose={onClose} busy={busy}
       />
-
-      {/* Current role badge */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10,
         background: '#f8fafc', borderRadius: 12, padding: '12px 14px', marginBottom: 18 }}>
         <span style={{ fontSize: 12, color: '#94a3b8', fontWeight: 700 }}>Current role:</span>
@@ -449,8 +511,6 @@ export const ChangeRoleModal = ({ user, onClose, onDone }) => {
           {user.role.replace(/_/g, ' ')}
         </span>
       </div>
-
-      {/* Role options */}
       <Label required>New Role</Label>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {ROLE_OPTIONS.map(opt => {
@@ -477,8 +537,6 @@ export const ChangeRoleModal = ({ user, onClose, onDone }) => {
           );
         })}
       </div>
-
-      {/* Warning if changing away from privileged role */}
       {(user.role === 'ngo_admin' || user.role === 'local_authority') && role !== user.role && (
         <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
           style={{ marginTop: 14, background: '#fef3c7', border: '2px solid #fde68a',
@@ -487,7 +545,6 @@ export const ChangeRoleModal = ({ user, onClose, onDone }) => {
           ⚠️ Changing from a privileged role will remove their dashboard access immediately.
         </motion.div>
       )}
-
       <ModalFooter
         onClose={onClose} busy={busy} onSubmit={submit}
         label="Update Role" color={G} icon={RefreshCw}
@@ -497,12 +554,12 @@ export const ChangeRoleModal = ({ user, onClose, onDone }) => {
 };
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 4. REVOKE XP MODAL
+// 4. REVOKE XP MODAL  (unchanged)
 // ═════════════════════════════════════════════════════════════════════════════
 export const RevokeXpModal = ({ user, onClose, onDone }) => {
-  const [xp,     setXp]     = useState('');
-  const [reason, setReason] = useState('');
-  const [busy,   setBusy]   = useState(false);
+  const [xp,      setXp]      = useState('');
+  const [reason,  setReason]  = useState('');
+  const [busy,    setBusy]    = useState(false);
   const [focused, setFocused] = useState('');
 
   const parsedXp       = Number(xp);
@@ -533,18 +590,13 @@ export const RevokeXpModal = ({ user, onClose, onDone }) => {
         title="Revoke XP" sub={`from ${user.name}`}
         onClose={onClose} busy={busy}
       />
-
-      {/* Warning banner */}
       <div style={{ background: '#fef2f2', border: `1.5px solid #fecaca`, borderRadius: 12,
         padding: '10px 14px', marginBottom: 18,
         fontSize: 12, fontWeight: 600, color: '#991b1b', lineHeight: 1.6 }}>
         ⚠ Deducts XP and writes an audit entry to the ledger.
         The user will be notified. XP cannot go below 0.
       </div>
-
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-        {/* Current → After preview */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center',
           gap: 16, background: '#f8fafc', borderRadius: 14, padding: '14px 20px' }}>
           <div style={{ textAlign: 'center' }}>
@@ -553,7 +605,6 @@ export const RevokeXpModal = ({ user, onClose, onDone }) => {
             <div style={{ fontFamily: "'Fraunces',serif", fontWeight: 900,
               fontSize: 28, color: OR, lineHeight: 1 }}>{user.xp || 0}</div>
           </div>
-
           <AnimatePresence>
             {previewBalance !== null && (
               <motion.div initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }}
@@ -576,8 +627,6 @@ export const RevokeXpModal = ({ user, onClose, onDone }) => {
             )}
           </AnimatePresence>
         </div>
-
-        {/* XP amount input */}
         <div>
           <Label required>XP to Revoke</Label>
           <input type="number" value={xp}
@@ -591,8 +640,6 @@ export const RevokeXpModal = ({ user, onClose, onDone }) => {
             onFocus={() => setFocused('xp')}
             onBlur={() => setFocused('')} />
         </div>
-
-        {/* Quick amounts */}
         <div style={{ display: 'flex', gap: 8 }}>
           {[10, 25, 50, 100].map(v => (
             <button key={v} onClick={() => setXp(String(v))}
@@ -606,8 +653,6 @@ export const RevokeXpModal = ({ user, onClose, onDone }) => {
             </button>
           ))}
         </div>
-
-        {/* Reason — required */}
         <div>
           <Label required>Reason</Label>
           <textarea value={reason} onChange={e => setReason(e.target.value)}
@@ -621,8 +666,6 @@ export const RevokeXpModal = ({ user, onClose, onDone }) => {
             onBlur={() => setFocused('')} />
         </div>
       </div>
-
-      {/* Custom footer — red CTA */}
       <div style={{ display: 'flex', gap: 10, marginTop: 24 }}>
         <button onClick={onClose} disabled={busy}
           style={{ flex: 1, padding: 13, borderRadius: 13,

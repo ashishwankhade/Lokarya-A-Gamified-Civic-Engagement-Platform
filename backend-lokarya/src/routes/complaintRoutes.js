@@ -14,10 +14,9 @@ import {
   getComplaintById,     // ← new
 } from '../controllers/complaintController.js';
 import { protect, authorize } from '../middlewares/authMiddleware.js';
-import multer from 'multer';
+import upload  from '../middlewares/uploadMiddleware.js';
 
 const router = express.Router();
-const upload = multer({ dest: 'uploads/' });
 
 // ── Public ────────────────────────────────────────────────────────────────────
 router.post('/worker-webhook',              workerWebhook);

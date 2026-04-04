@@ -7,6 +7,9 @@
  *   ImpactStats, CTABanner, CommunityStrip, LoadingState, EmptyState,
  *   LockedState, StepCard, TIERS / getTier / getNextTier / getProgress,
  *   imgUrl — all imported from shared.
+ *
+ * UPDATE: "Awaiting officer assignment" now shows vibhag authority
+ *   (name, designation, phone) returned as `_vibhagAuthority` from API.
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -95,10 +98,10 @@ const MapPanel = ({ onConfirm, onClose }) => {
   const containerRef = useRef(null);
   const mapRef       = useRef(null);
   const markerRef    = useRef(null);
-  const [ready,setReady]       = useState(false);
-  const [locating,setLocating] = useState(true);
+  const [ready,setReady]         = useState(false);
+  const [locating,setLocating]   = useState(true);
   const [geocoding,setGeocoding] = useState(false);
-  const [pinned,setPinned]     = useState(null);
+  const [pinned,setPinned]       = useState(null);
 
   useEffect(()=>{
     if(!document.getElementById('lf-css')){
@@ -202,6 +205,57 @@ const MapPlaceholder = ({ hasCoords, address, coords, onOpen }) => (
       <><p style={{fontFamily:SF,fontWeight:900,fontSize:20,color:NV,marginBottom:8}}>Pin Your Location</p><p style={{fontSize:13,color:'#64748b',lineHeight:1.75,maxWidth:220,marginBottom:28}}>GPS detects your location and auto-fills address and Vibhag instantly.</p><span style={{display:'inline-flex',alignItems:'center',gap:8,fontSize:14,fontWeight:900,color:'#fff',background:OR,borderRadius:14,padding:'12px 28px',boxShadow:`0 4px 16px ${OR}45`}}><Target size={15}/> Open Map</span></>
     )}
   </motion.div>
+);
+
+/* ─── Officer / Authority Card ──────────────────────────────────── */
+const OfficerCard = ({ officer, isVibhagAuthority = false }) => (
+  <div style={{
+    background: isVibhagAuthority ? '#f0f7ff' : '#f8fafc',
+    borderRadius: 14,
+    border: isVibhagAuthority ? '1.5px solid #bfdbfe' : '1.5px solid #f0ebe3',
+    padding: '14px 16px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
+    margin: '16px 0',
+  }}>
+    <div style={{
+      width: 40, height: 40, borderRadius: 12, flexShrink: 0,
+      background: isVibhagAuthority ? '#eff6ff' : '#fff5ee',
+      border: `1.5px solid ${isVibhagAuthority ? '#bfdbfe' : `${OR}30`}`,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }}>
+      <User size={18} style={{ color: isVibhagAuthority ? '#2563eb' : OR }} />
+    </div>
+    <div style={{ flex: 1, minWidth: 0 }}>
+      <p style={{
+        fontSize: 9, fontWeight: 800, textTransform: 'uppercase',
+        letterSpacing: '0.1em', marginBottom: 2,
+        color: '#94a3b8',
+      }}>
+        {isVibhagAuthority ? (
+          <>Vibhag Authority · <span style={{ color: '#d97706' }}>Pending Assignment</span></>
+        ) : 'Assigned Officer'}
+      </p>
+      <p style={{ fontWeight: 800, fontSize: 13, color: NV }}>{officer.name}</p>
+      <p style={{ fontSize: 11, color: '#64748b', fontWeight: 600, textTransform: 'capitalize' }}>
+        {officer.designation || (isVibhagAuthority ? 'Ward Officer' : 'Field Staff')}
+      </p>
+    </div>
+    {officer.contact && (
+      <a
+        href={`tel:${officer.contact}`}
+        style={{
+          width: 36, height: 36, borderRadius: 10,
+          background: '#ecfdf5',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          textDecoration: 'none', flexShrink: 0,
+        }}
+      >
+        <Phone size={15} style={{ color: '#059669' }} />
+      </a>
+    )}
+  </div>
 );
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -415,11 +469,16 @@ const ComplaintPage = () => {
 
                       {/* Photo */}
                       <div style={{marginBottom:28}}>
-                        <label style={{fontSize:9,fontWeight:800,color:'#94a3b8',textTransform:'uppercase',letterSpacing:'0.12em',display:'block',marginBottom:10}}>4 · Photo Proof <span style={{textTransform:'none',fontWeight:500,color:'#cbd5e1'}}>(optional)</span></label>
+                        <label style={{fontSize:9,fontWeight:800,color:'#94a3b8',textTransform:'uppercase',letterSpacing:'0.12em',display:'block',marginBottom:10}}>4 · Photo Proof <span style={{textTransform:'none',fontWeight:500,color:'#cbd5e1'}}>(click to upload)</span></label>
                         <div style={{display:'flex',alignItems:'center',gap:12}}>
                           <label style={{flex:1,cursor:'pointer',background:'#f8fafc',border:'2px dashed #f0ebe3',borderRadius:14,height:54,display:'flex',alignItems:'center',justifyContent:'center',gap:8,color:'#94a3b8',fontWeight:700,fontSize:13,transition:'all 0.2s'}} onMouseEnter={e=>{e.currentTarget.style.borderColor=OR;e.currentTarget.style.color=OR;}} onMouseLeave={e=>{e.currentTarget.style.borderColor='#f0ebe3';e.currentTarget.style.color='#94a3b8';}}>
                             <Camera size={17}/> Add Photo
-                            <input type="file" style={{display:'none'}} onChange={handleImage} accept="image/*"/>
+                            <input type="file" 
+                            style={{display:'none'}} 
+                            onChange={handleImage}
+                            capture="environment" 
+                            accept="image/*"
+                            />
                           </label>
                           <AnimatePresence>
                             {preview&&(
@@ -484,6 +543,12 @@ const ComplaintPage = () => {
                         <span style={{fontFamily:SF,fontWeight:900,fontSize:15,color:NV}}>{item.category} Issue</span>
                         {item.vibhag&&<span style={{fontSize:10,fontWeight:800,color:'#059669',background:'#ecfdf5',border:'1px solid #a7f3d0',borderRadius:999,padding:'2px 8px'}}>{item.vibhag}</span>}
                         {resolutionPhoto&&!['resolved','closed'].includes(item.status)&&<span style={{fontSize:10,fontWeight:800,color:'#2563eb',background:'#dbeafe',border:'1px solid #bfdbfe',borderRadius:999,padding:'2px 8px'}}>📸 Proof uploaded</span>}
+                        {/* Show vibhag authority badge on collapsed card if no officer assigned yet */}
+                        {!item.assignedOfficer?.name && item._vibhagAuthority && (
+                          <span style={{fontSize:10,fontWeight:800,color:'#92400e',background:'#fef3c7',border:'1px solid #fde68a',borderRadius:999,padding:'2px 8px'}}>
+                            👤 {item._vibhagAuthority.name}
+                          </span>
+                        )}
                       </div>
                       <div style={{display:'flex',alignItems:'center',gap:8}}>
                         <span style={{fontSize:10,color:'#94a3b8',fontFamily:'monospace',fontWeight:600}}>{item.ticketId||`#${item._id.slice(-6).toUpperCase()}`}</span>
@@ -503,18 +568,18 @@ const ComplaintPage = () => {
                       <motion.div initial={{height:0,opacity:0}} animate={{height:'auto',opacity:1}} exit={{height:0,opacity:0}} transition={{type:'spring',stiffness:100,damping:20}} style={{overflow:'hidden'}}>
                         <div style={{padding:'0 20px 22px',borderTop:'1px solid #f8fafc'}}>
 
-                          {item.assignedOfficer?.name?(
-                            <div style={{background:'#f8fafc',borderRadius:14,border:'1.5px solid #f0ebe3',padding:'14px 16px',display:'flex',alignItems:'center',gap:12,margin:'16px 0'}}>
-                              <div style={{width:40,height:40,borderRadius:12,background:'#fff5ee',border:`1.5px solid ${OR}30`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><User size={18} style={{color:OR}}/></div>
-                              <div style={{flex:1}}>
-                                <p style={{fontSize:9,fontWeight:800,color:'#94a3b8',textTransform:'uppercase',letterSpacing:'0.1em',marginBottom:2}}>Assigned Officer</p>
-                                <p style={{fontWeight:800,fontSize:13,color:NV}}>{item.assignedOfficer.name}</p>
-                                <p style={{fontSize:11,color:'#64748b',fontWeight:600,textTransform:'capitalize'}}>{item.assignedOfficer.designation||'Field Staff'}</p>
-                              </div>
-                              {item.assignedOfficer.contact&&<a href={`tel:${item.assignedOfficer.contact}`} style={{width:36,height:36,borderRadius:10,background:'#ecfdf5',display:'flex',alignItems:'center',justifyContent:'center',textDecoration:'none'}}><Phone size={15} style={{color:'#059669'}}/></a>}
+                          {/* ── Officer / Vibhag Authority section ── */}
+                          {item.assignedOfficer?.name ? (
+                            // Formally assigned officer
+                            <OfficerCard officer={item.assignedOfficer} isVibhagAuthority={false} />
+                          ) : item._vibhagAuthority ? (
+                            // No formal assignment yet — show vibhag authority as reference contact
+                            <OfficerCard officer={item._vibhagAuthority} isVibhagAuthority={true} />
+                          ) : (
+                            // No officer and no authority found for vibhag
+                            <div style={{margin:'16px 0',padding:'14px',background:'#f8fafc',borderRadius:14,border:'1.5px dashed #f0ebe3',textAlign:'center'}}>
+                              <p style={{fontSize:12,color:'#94a3b8',fontWeight:600}}>Awaiting officer assignment…</p>
                             </div>
-                          ):(
-                            <div style={{margin:'16px 0',padding:'14px',background:'#f8fafc',borderRadius:14,border:'1.5px dashed #f0ebe3',textAlign:'center'}}><p style={{fontSize:12,color:'#94a3b8',fontWeight:600}}>Awaiting officer assignment…</p></div>
                           )}
 
                           {(item.timeline||[]).length>0&&(

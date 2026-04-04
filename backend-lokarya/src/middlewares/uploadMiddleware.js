@@ -1,10 +1,10 @@
 import { v2 as cloudinary } from 'cloudinary';
 import { CloudinaryStorage } from 'multer-storage-cloudinary';
 import multer from 'multer';
-import dotenv from 'dotenv';
+// import dotenv from 'dotenv';
 
 // 1. Load Environment Variables
-dotenv.config();
+// dotenv.config();
 
 // --- DEBUG: Check if Credentials are Loaded ---
 const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
@@ -24,6 +24,7 @@ cloudinary.config({
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
+// console.log('☁️  Cloudinary cloud_name at config time:', process.env.CLOUDINARY_CLOUD_NAME);
 
 // 3. Configure Storage Engine
 const storage = new CloudinaryStorage({
