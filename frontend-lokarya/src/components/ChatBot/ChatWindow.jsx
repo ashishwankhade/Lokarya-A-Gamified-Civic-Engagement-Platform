@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Send, X, Bot, QrCode, Target, Zap, MapPin, ScanLine, Trophy } from 'lucide-react';
 
+// const AI_BACKEND_URL = import.meta.env.VITE_AI_BACKEND_URL || 'http://127.0.0.1:8000';
 const AI_BACKEND_URL = import.meta.env.VITE_AI_BACKEND_URL || 'http://127.0.0.1:8000';
 
 /* ── Quick reply chips shown on welcome ─────────────────────────── */

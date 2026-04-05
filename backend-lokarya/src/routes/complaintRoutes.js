@@ -20,7 +20,8 @@ const router = express.Router();
 
 // ── Public ────────────────────────────────────────────────────────────────────
 // router.post('/worker-webhook',              workerWebhook);
-router.post('/:id/accept', workerAcceptTask); // worker hits this from the magic link page
+// router.post('/:id/accept', workerAcceptTask); // worker hits this from the magic link 
+router.post('/accept', workerAcceptTask);
 router.post('/magic-upload', upload.single('photo'), magicUpload);
 
 // ── Citizen ───────────────────────────────────────────────────────────────────
