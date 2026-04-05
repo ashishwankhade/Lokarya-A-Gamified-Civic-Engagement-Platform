@@ -830,3 +830,12 @@ export const verifyCompletion = asyncHandler(async (req, res) => {
     res.json({ message: 'Declined.' });
   }
 });
+
+
+// GET /api/activities/my
+// Returns ALL missions owned by the authenticated NGO (all statuses)
+export const getMyActivities = asyncHandler(async (req, res) => {
+  const activities = await Activity.find({ ngo: req.user._id })
+    .sort({ createdAt: -1 });
+  res.json(activities);
+});

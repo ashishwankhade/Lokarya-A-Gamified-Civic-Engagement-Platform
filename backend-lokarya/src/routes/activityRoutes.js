@@ -52,6 +52,7 @@ import {
   getPendingApprovals,
   requestCompletion,     // alias → register
   verifyCompletion,      // old NGO verify
+   getMyActivities
 } from '../controllers/activityController.js';
 
 const router = express.Router();
@@ -90,6 +91,13 @@ router.get(
   getAdminPendingActivities
 );
 
+router.get(
+  '/my',
+  protect,
+  authorize('ngo_admin', 'super_admin'),
+  getMyActivities
+);
+
 /**
  * POST /api/activities/scan-qr
  * Step 4+5: Citizen scans QR at venue. 3-layer verification gate.
@@ -110,7 +118,7 @@ router.post(
   '/',
   protect,
   authorize('ngo_admin', 'super_admin'),
-  upload.single('image'),
+  upload.single('banner'),
   createActivity
 );
 
@@ -133,7 +141,7 @@ router.put(
   '/:id',
   protect,
   authorize('ngo_admin', 'super_admin'),
-  upload.single('image'),
+  upload.single('banner'),
   updateActivity
 );
 
@@ -248,5 +256,8 @@ router.put(
   authorize('ngo_admin', 'super_admin'),
   verifyCompletion
 );
+
+
+
 
 export default router;
