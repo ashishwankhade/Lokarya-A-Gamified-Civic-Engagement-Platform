@@ -10,6 +10,9 @@
  *
  * UPDATE: "Awaiting officer assignment" now shows vibhag authority
  *   (name, designation, phone) returned as `_vibhagAuthority` from API.
+ *
+ * UPDATE 2: Resolution Proof image is now tappable — opens a fullscreen
+ *   lightbox overlay with zoom-in/out and click-outside-to-dismiss.
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -259,6 +262,83 @@ const OfficerCard = ({ officer, isVibhagAuthority = false }) => (
 );
 
 /* ═══════════════════════════════════════════════════════════════════
+   LIGHTBOX
+═══════════════════════════════════════════════════════════════════ */
+const Lightbox = ({ src, onClose }) => {
+  /* close on Escape key */
+  useEffect(() => {
+    const handler = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  return (
+    <AnimatePresence>
+      {src && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          onClick={onClose}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 9999,
+            background: 'rgba(0,0,0,0.90)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: '20px', cursor: 'zoom-out',
+          }}
+        >
+          <motion.div
+            initial={{ scale: 0.88, opacity: 0 }}
+            animate={{ scale: 1,    opacity: 1 }}
+            exit={{    scale: 0.88, opacity: 0 }}
+            transition={{ type: 'spring', stiffness: 280, damping: 24 }}
+            onClick={e => e.stopPropagation()}
+            style={{ position: 'relative', maxWidth: '94vw', maxHeight: '88vh' }}
+          >
+            <img
+              src={src}
+              alt="Resolution proof"
+              style={{
+                display: 'block',
+                maxWidth: '100%',
+                maxHeight: '85vh',
+                borderRadius: 16,
+                objectFit: 'contain',
+                boxShadow: '0 24px 64px rgba(0,0,0,0.6)',
+              }}
+            />
+
+            {/* Close button */}
+            <button
+              onClick={onClose}
+              style={{
+                position: 'absolute', top: -14, right: -14,
+                width: 32, height: 32, borderRadius: '50%',
+                background: '#fff', border: 'none', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                boxShadow: '0 2px 12px rgba(0,0,0,0.35)',
+                fontWeight: 900, fontSize: 16, color: '#333',
+                lineHeight: 1,
+              }}
+            >
+              ×
+            </button>
+
+            {/* Caption */}
+            <p style={{
+              textAlign: 'center', marginTop: 10,
+              color: 'rgba(255,255,255,0.45)', fontSize: 11, fontWeight: 600,
+            }}>
+              Tap outside or press Esc to close
+            </p>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+};
+
+/* ═══════════════════════════════════════════════════════════════════
    MAIN PAGE
 ═══════════════════════════════════════════════════════════════════ */
 const ComplaintPage = () => {
@@ -277,6 +357,9 @@ const ComplaintPage = () => {
   const [ratingTarget,     setRatingTarget]     = useState(null);
   const [ratingValue,      setRatingValue]      = useState(0);
   const [ratingLoading,    setRatingLoading]    = useState(false);
+
+  // ── Lightbox state ──────────────────────────────────────────────
+  const [lightboxImg, setLightboxImg] = useState(null);
 
   const formRef  = useRef(null);
   const xp       = user?.xp || 0;
@@ -345,6 +428,9 @@ const ComplaintPage = () => {
     <div className="cp-wrap" style={{ minHeight:'100vh', background:BG, fontFamily:FF }}>
       <GlobalStyles namespace="cp-wrap"/>
       <LoginGate {...gateProps}/>
+
+      {/* ── Lightbox overlay ── */}
+      <Lightbox src={lightboxImg} onClose={() => setLightboxImg(null)} />
 
       {/* HERO */}
       <PageHeroShell badge="Nagpur's Complaint Portal">
@@ -473,11 +559,11 @@ const ComplaintPage = () => {
                         <div style={{display:'flex',alignItems:'center',gap:12}}>
                           <label style={{flex:1,cursor:'pointer',background:'#f8fafc',border:'2px dashed #f0ebe3',borderRadius:14,height:54,display:'flex',alignItems:'center',justifyContent:'center',gap:8,color:'#94a3b8',fontWeight:700,fontSize:13,transition:'all 0.2s'}} onMouseEnter={e=>{e.currentTarget.style.borderColor=OR;e.currentTarget.style.color=OR;}} onMouseLeave={e=>{e.currentTarget.style.borderColor='#f0ebe3';e.currentTarget.style.color='#94a3b8';}}>
                             <Camera size={17}/> Add Photo
-                            <input type="file" 
-                            style={{display:'none'}} 
-                            onChange={handleImage}
-                            capture="environment" 
-                            accept="image/*"
+                            <input type="file"
+                              style={{display:'none'}}
+                              onChange={handleImage}
+                              capture="environment"
+                              accept="image/*"
                             />
                           </label>
                           <AnimatePresence>
@@ -543,7 +629,6 @@ const ComplaintPage = () => {
                         <span style={{fontFamily:SF,fontWeight:900,fontSize:15,color:NV}}>{item.category} Issue</span>
                         {item.vibhag&&<span style={{fontSize:10,fontWeight:800,color:'#059669',background:'#ecfdf5',border:'1px solid #a7f3d0',borderRadius:999,padding:'2px 8px'}}>{item.vibhag}</span>}
                         {resolutionPhoto&&!['resolved','closed'].includes(item.status)&&<span style={{fontSize:10,fontWeight:800,color:'#2563eb',background:'#dbeafe',border:'1px solid #bfdbfe',borderRadius:999,padding:'2px 8px'}}>📸 Proof uploaded</span>}
-                        {/* Show vibhag authority badge on collapsed card if no officer assigned yet */}
                         {!item.assignedOfficer?.name && item._vibhagAuthority && (
                           <span style={{fontSize:10,fontWeight:800,color:'#92400e',background:'#fef3c7',border:'1px solid #fde68a',borderRadius:999,padding:'2px 8px'}}>
                             👤 {item._vibhagAuthority.name}
@@ -568,15 +653,12 @@ const ComplaintPage = () => {
                       <motion.div initial={{height:0,opacity:0}} animate={{height:'auto',opacity:1}} exit={{height:0,opacity:0}} transition={{type:'spring',stiffness:100,damping:20}} style={{overflow:'hidden'}}>
                         <div style={{padding:'0 20px 22px',borderTop:'1px solid #f8fafc'}}>
 
-                          {/* ── Officer / Vibhag Authority section ── */}
+                          {/* Officer / Vibhag Authority section */}
                           {item.assignedOfficer?.name ? (
-                            // Formally assigned officer
                             <OfficerCard officer={item.assignedOfficer} isVibhagAuthority={false} />
                           ) : item._vibhagAuthority ? (
-                            // No formal assignment yet — show vibhag authority as reference contact
                             <OfficerCard officer={item._vibhagAuthority} isVibhagAuthority={true} />
                           ) : (
-                            // No officer and no authority found for vibhag
                             <div style={{margin:'16px 0',padding:'14px',background:'#f8fafc',borderRadius:14,border:'1.5px dashed #f0ebe3',textAlign:'center'}}>
                               <p style={{fontSize:12,color:'#94a3b8',fontWeight:600}}>Awaiting officer assignment…</p>
                             </div>
@@ -610,6 +692,7 @@ const ComplaintPage = () => {
                             </div>
                           )}
 
+                          {/* Citizen evidence photo */}
                           {citizenPhoto&&(
                             <motion.div initial={{opacity:0,y:12}} animate={{opacity:1,y:0}} style={{marginBottom:14,background:'#fffbeb',border:'1.5px solid #fde68a',borderRadius:16,padding:'16px'}}>
                               <p style={{display:'flex',alignItems:'center',gap:8,fontWeight:800,fontSize:13,color:'#92400e',marginBottom:12}}><Camera size={15}/> Your Evidence Photo</p>
@@ -620,17 +703,59 @@ const ComplaintPage = () => {
                             </motion.div>
                           )}
 
+                          {/* ── Resolution proof — tappable lightbox ── */}
                           {resolutionPhoto&&(
                             <motion.div initial={{opacity:0,y:12}} animate={{opacity:1,y:0}} style={{marginBottom:14,background:'#ecfdf5',border:'1.5px solid #a7f3d0',borderRadius:16,padding:'16px'}}>
                               <p style={{display:'flex',alignItems:'center',gap:8,fontWeight:800,fontSize:13,color:'#065f46',marginBottom:12}}><ImageIcon size={15}/> Resolution Proof</p>
-                              <div style={{borderRadius:12,overflow:'hidden',height:160,position:'relative'}}>
-                                <img src={resolutionPhoto} alt="Resolution" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
-                                <div style={{position:'absolute',bottom:8,right:8,background:'rgba(0,0,0,0.55)',color:'#fff',fontSize:10,fontWeight:700,padding:'3px 8px',borderRadius:6}}>Uploaded by field worker</div>
+
+                              {/* Tappable image */}
+                              <div
+                                onClick={() => setLightboxImg(resolutionPhoto)}
+                                style={{borderRadius:12,overflow:'hidden',height:160,position:'relative',cursor:'zoom-in'}}
+                                onMouseEnter={e => {
+                                  e.currentTarget.querySelector('.lb-hint').style.opacity = '1';
+                                  e.currentTarget.querySelector('img').style.transform = 'scale(1.03)';
+                                }}
+                                onMouseLeave={e => {
+                                  e.currentTarget.querySelector('.lb-hint').style.opacity = '0';
+                                  e.currentTarget.querySelector('img').style.transform = 'scale(1)';
+                                }}
+                              >
+                                <img
+                                  src={resolutionPhoto}
+                                  alt="Resolution"
+                                  style={{width:'100%',height:'100%',objectFit:'cover',transition:'transform 0.25s ease',display:'block'}}
+                                />
+
+                                {/* Hover hint overlay */}
+                                <div
+                                  className="lb-hint"
+                                  style={{
+                                    position:'absolute',inset:0,
+                                    background:'rgba(0,0,0,0.22)',
+                                    display:'flex',alignItems:'center',justifyContent:'center',
+                                    opacity:0,transition:'opacity 0.2s',
+                                  }}
+                                >
+                                  <div style={{background:'rgba(0,0,0,0.60)',borderRadius:999,padding:'6px 16px',color:'#fff',fontSize:11,fontWeight:800,display:'flex',alignItems:'center',gap:6}}>
+                                    🔍 Tap to expand
+                                  </div>
+                                </div>
+
+                                <div style={{position:'absolute',bottom:8,right:8,background:'rgba(0,0,0,0.55)',color:'#fff',fontSize:10,fontWeight:700,padding:'3px 8px',borderRadius:6}}>
+                                  Uploaded by field worker
+                                </div>
                               </div>
-                              {['resolved','closed'].includes(item.status)&&<p style={{fontSize:11,color:'#059669',fontWeight:700,marginTop:10}}>Issue resolved. XP added to your account!</p>}
+
+                              {['resolved','closed'].includes(item.status)&&(
+                                <p style={{fontSize:11,color:'#059669',fontWeight:700,marginTop:10}}>
+                                  Issue resolved. XP added to your account!
+                                </p>
+                              )}
                             </motion.div>
                           )}
 
+                          {/* Rating */}
                           {item.status==='resolved'&&!item.citizenRating&&(
                             <motion.div initial={{opacity:0,y:10}} animate={{opacity:1,y:0}} style={{marginTop:4,background:'#fff5ee',border:`1.5px solid ${OR}30`,borderRadius:16,padding:'16px'}}>
                               <p style={{fontWeight:800,fontSize:13,color:NV,marginBottom:12,display:'flex',alignItems:'center',gap:7}}><Star size={14} fill={OR} style={{color:OR}}/> Rate the Resolution <span style={{fontSize:10,color:'#94a3b8',fontWeight:600,marginLeft:4}}>+5 XP for feedback</span></p>

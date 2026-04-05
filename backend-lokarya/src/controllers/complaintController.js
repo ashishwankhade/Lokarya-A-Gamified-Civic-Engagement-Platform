@@ -146,7 +146,7 @@ const assignWorker = asyncHandler(async (req, res) => {
   complaint.status         = 'worker_assigned';
   complaint.timeline.push({
     status:    'worker_assigned',
-    message:   `Field worker ${worker.name} (${worker.employeeId}) assigned. WhatsApp sent.`,
+    message:   `Field worker ${worker.name} (${worker.employeeId}) assigned. Details sent.`,
     updatedBy: req.user._id,
   });
   await complaint.save();
@@ -213,7 +213,7 @@ const workerAcceptTask = asyncHandler(async (req, res) => {
   complaint.status = 'in_progress';
   complaint.timeline.push({
     status:  'in_progress',
-    message: 'Field worker accepted the task via magic link.',
+    message: 'Field worker accepted the task.',
   });
   await complaint.save();
 
