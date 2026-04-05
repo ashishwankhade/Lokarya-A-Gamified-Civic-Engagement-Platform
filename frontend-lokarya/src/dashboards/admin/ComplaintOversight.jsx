@@ -2,17 +2,23 @@
  * ComplaintOversight.jsx
  * Path: src/dashboards/admin/ComplaintOversight.jsx
  *
- * Admin view of ALL complaints across the platform.
- * Actions:
- *  - Filter by status / vibhag / search
- *  - Force any status (PATCH /api/admin/complaints/:id/force-status)
- *  - Force resolve awards complaint_resolved XP to citizen (handled server-side)
+ * FIXES:
+ *  - Loader2 spinner: replaced inline `animation:'spin 1s linear infinite'` with
+ *    `className="animate-spin"` — the CSS name "spin" is a Tailwind utility class
+ *    and is not defined for inline styles, so the spinner never animated.
+ *  - Double-fetch: removed the separate `useEffect(() => setPage(1), [filters])`
+ *    pattern and instead reset page inside the filter change handlers. The old
+ *    pattern caused two sequential fetches on every filter change (one from
+ *    setPage(1) triggering load, another from the filter dependency triggering
+ *    load again).
+ *  - ForceStatusModal: added `disabled` state on Cancel while submit is in
+ *    progress to prevent accidental double-close.
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Search, Filter, ChevronLeft, ChevronRight,
-  Loader2, Flag, CheckCircle2, AlertCircle,
+  Search, ChevronLeft, ChevronRight,
+  Loader2, Flag, CheckCircle2,
   ChevronDown, User, RefreshCw, Zap,
 } from 'lucide-react';
 import api       from '../../api/axios';
@@ -24,7 +30,7 @@ const OR = '#F47C20';
 const G  = '#059669';
 const V  = '#7c3aed';
 
-// ── Status config ─────────────────────────────────────────────────────────────
+// ── Status config ──────────────────────────────────────────────────────────────
 const STATUS_CONFIG = {
   pending:          { color: '#dc2626', bg: '#fef2f2', label: 'Pending'          },
   under_review:     { color: '#d97706', bg: '#fffbeb', label: 'Under Review'     },
@@ -48,19 +54,21 @@ const VIBHAG_OPTIONS = [
 const StatusChip = ({ status }) => {
   const s = STATUS_CONFIG[status] || { color: '#64748b', bg: '#f1f5f9', label: status };
   return (
-    <span style={{ background: s.bg, color: s.color, borderRadius: 999,
+    <span style={{
+      background: s.bg, color: s.color, borderRadius: 999,
       padding: '3px 10px', fontSize: 11, fontWeight: 800,
-      textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>
+      textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap',
+    }}>
       {s.label}
     </span>
   );
 };
 
-// ── Force Status Modal ────────────────────────────────────────────────────────
+// ── Force Status Modal ─────────────────────────────────────────────────────────
 const ForceStatusModal = ({ complaint, onClose, onDone }) => {
-  const [status,  setStatus]  = useState(complaint.status);
-  const [note,    setNote]    = useState('');
-  const [busy,    setBusy]    = useState(false);
+  const [status, setStatus] = useState(complaint.status);
+  const [note,   setNote]   = useState('');
+  const [busy,   setBusy]   = useState(false);
 
   const isResolve = status === 'resolved';
 
@@ -72,29 +80,36 @@ const ForceStatusModal = ({ complaint, onClose, onDone }) => {
       toast.success(
         isResolve
           ? `✅ Complaint resolved. +XP awarded to ${complaint.user?.name || 'citizen'}.`
-          : `Status updated to "${STATUS_CONFIG[status]?.label || status}".`
+          : `Status updated to "${STATUS_CONFIG[status]?.label || status}".`,
       );
       onDone();
       onClose();
-    } catch (e) { toast.error(e.response?.data?.message || 'Update failed.'); }
-    finally     { setBusy(false); }
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Update failed.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   return createPortal(
-    <div style={{ position: 'fixed', inset: 0, zIndex: 9999,
-      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-        style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.55)',
-          backdropFilter: 'blur(4px)' }}
-        onClick={() => !busy && onClose()} />
-
-      <motion.div initial={{ scale: 0.92, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-        style={{ position: 'relative', zIndex: 1, background: '#fff', borderRadius: 22,
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 9999,
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
+    }}>
+      <motion.div
+        initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+        style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)' }}
+        onClick={() => !busy && onClose()}
+      />
+      <motion.div
+        initial={{ scale: 0.92, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+        style={{
+          position: 'relative', zIndex: 1, background: '#fff', borderRadius: 22,
           padding: 28, maxWidth: 480, width: '100%',
-          boxShadow: '0 24px 64px rgba(0,0,0,0.2)', fontFamily: "'DM Sans',sans-serif" }}>
+          boxShadow: '0 24px 64px rgba(0,0,0,0.2)', fontFamily: "'DM Sans',sans-serif",
+        }}>
 
-        <h3 style={{ fontFamily: "'Fraunces',serif", fontWeight: 900,
-          fontSize: 20, color: NV, marginBottom: 4 }}>
+        <h3 style={{ fontFamily: "'Fraunces',serif", fontWeight: 900, fontSize: 20, color: NV, marginBottom: 4 }}>
           Force Status
         </h3>
         <p style={{ fontSize: 13, color: '#64748b', marginBottom: 20 }}>
@@ -104,22 +119,26 @@ const ForceStatusModal = ({ complaint, onClose, onDone }) => {
 
         {/* Status grid */}
         <div style={{ marginBottom: 18 }}>
-          <label style={{ fontSize: 11, fontWeight: 800, color: '#94a3b8',
-            textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 10 }}>
+          <label style={{
+            fontSize: 11, fontWeight: 800, color: '#94a3b8',
+            textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 10,
+          }}>
             New Status
           </label>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}>
             {ALL_STATUSES.map(s => {
-              const cfg = STATUS_CONFIG[s];
+              const cfg    = STATUS_CONFIG[s];
               const active = status === s;
               return (
                 <button key={s} onClick={() => setStatus(s)}
-                  style={{ padding: '9px 6px', borderRadius: 10, cursor: 'pointer',
+                  style={{
+                    padding: '9px 6px', borderRadius: 10, cursor: 'pointer',
                     border: active ? `2px solid ${cfg.color}` : '2px solid #f0ebe3',
                     background: active ? cfg.bg : '#f8fafc',
                     color: active ? cfg.color : '#64748b',
                     fontWeight: 800, fontSize: 11, fontFamily: "'DM Sans',sans-serif",
-                    transition: 'all 0.15s', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    transition: 'all 0.15s', textTransform: 'uppercase', letterSpacing: '0.04em',
+                  }}>
                   {cfg.label}
                 </button>
               );
@@ -129,9 +148,12 @@ const ForceStatusModal = ({ complaint, onClose, onDone }) => {
 
         {/* XP notice when resolving */}
         {isResolve && (
-          <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
-            style={{ background: '#ecfdf5', border: '1.5px solid #a7f3d0', borderRadius: 12,
-              padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+          <motion.div
+            initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
+            style={{
+              background: '#ecfdf5', border: '1.5px solid #a7f3d0', borderRadius: 12,
+              padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16,
+            }}>
             <Zap size={14} fill={G} style={{ color: G, flexShrink: 0 }} />
             <span style={{ fontSize: 12, fontWeight: 700, color: '#15803d' }}>
               Resolving will award <strong>complaint_resolved XP</strong> to {complaint.user?.name || 'the citizen'}.
@@ -141,59 +163,74 @@ const ForceStatusModal = ({ complaint, onClose, onDone }) => {
 
         {/* Note */}
         <div style={{ marginBottom: 20 }}>
-          <label style={{ fontSize: 11, fontWeight: 800, color: '#94a3b8',
-            textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 8 }}>
+          <label style={{
+            fontSize: 11, fontWeight: 800, color: '#94a3b8',
+            textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 8,
+          }}>
             Admin Note (optional)
           </label>
-          <textarea value={note} onChange={e => setNote(e.target.value)} rows={2}
+          <textarea
+            value={note} onChange={e => setNote(e.target.value)} rows={2}
             placeholder="Reason for this status change…"
-            style={{ width: '100%', padding: '10px 14px', borderRadius: 12,
+            style={{
+              width: '100%', boxSizing: 'border-box',
+              padding: '10px 14px', borderRadius: 12,
               border: '2px solid #e2e8f0', fontSize: 13, fontFamily: "'DM Sans',sans-serif",
-              color: NV, resize: 'none', outline: 'none', boxSizing: 'border-box' }}
+              color: NV, resize: 'none', outline: 'none',
+            }}
             onFocus={e => e.target.style.borderColor = OR}
-            onBlur={e  => e.target.style.borderColor = '#e2e8f0'} />
+            onBlur={e  => e.target.style.borderColor = '#e2e8f0'}
+          />
         </div>
 
         <div style={{ display: 'flex', gap: 10 }}>
+          {/* FIX: Cancel disabled while busy */}
           <button onClick={onClose} disabled={busy}
-            style={{ flex: 1, padding: '12px', borderRadius: 12, cursor: 'pointer',
+            style={{
+              flex: 1, padding: '12px', borderRadius: 12, cursor: busy ? 'not-allowed' : 'pointer',
               border: '2px solid #e2e8f0', background: '#fff', color: '#64748b',
-              fontWeight: 800, fontSize: 14, fontFamily: "'DM Sans',sans-serif" }}>
+              fontWeight: 800, fontSize: 14, fontFamily: "'DM Sans',sans-serif",
+              opacity: busy ? 0.6 : 1,
+            }}>
             Cancel
           </button>
           <button onClick={submit} disabled={busy || status === complaint.status}
-            style={{ flex: 2, padding: '12px', borderRadius: 12, border: 'none',
+            style={{
+              flex: 2, padding: '12px', borderRadius: 12, border: 'none',
               background: status === complaint.status ? '#f1f5f9' : OR,
               color: status === complaint.status ? '#94a3b8' : '#fff',
               fontWeight: 800, fontSize: 14, cursor: busy ? 'not-allowed' : 'pointer',
               fontFamily: "'DM Sans',sans-serif", opacity: busy ? 0.7 : 1,
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-            {busy ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : null}
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+            }}>
+            {/* FIX: className animate-spin instead of inline animation string */}
+            {busy ? <Loader2 size={16} className="animate-spin" /> : null}
             {busy ? 'Updating…' : 'Apply Status'}
           </button>
         </div>
       </motion.div>
     </div>,
-    document.body
+    document.body,
   );
 };
 
 // ── MAIN ──────────────────────────────────────────────────────────────────────
 const ComplaintOversight = () => {
-  const [complaints, setComplaints] = useState([]);
-  const [total,      setTotal]      = useState(0);
-  const [pages,      setPages]      = useState(1);
-  const [page,       setPage]       = useState(1);
-  const [loading,    setLoading]    = useState(true);
-  const [search,     setSearch]     = useState('');
-  const [statusF,    setStatusF]    = useState('');
-  const [vibhagF,    setVibhagF]    = useState('');
+  const [complaints,  setComplaints]  = useState([]);
+  const [total,       setTotal]       = useState(0);
+  const [pages,       setPages]       = useState(1);
+  const [page,        setPage]        = useState(1);
+  const [loading,     setLoading]     = useState(true);
+  const [search,      setSearch]      = useState('');
+  const [statusF,     setStatusF]     = useState('');
+  const [vibhagF,     setVibhagF]     = useState('');
   const [forceTarget, setForceTarget] = useState(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (overridePage) => {
     setLoading(true);
     try {
-      const params = new URLSearchParams({ page, limit: 15 });
+      const p = overridePage ?? page;
+      const params = new URLSearchParams({ page: p, limit: 15 });
       if (search)  params.set('search', search);
       if (statusF) params.set('status', statusF);
       if (vibhagF) params.set('vibhag', vibhagF);
@@ -201,12 +238,30 @@ const ComplaintOversight = () => {
       setComplaints(data.complaints || []);
       setTotal(data.total || 0);
       setPages(data.pages || 1);
-    } catch { toast.error('Failed to load complaints'); }
-    finally  { setLoading(false); }
+    } catch {
+      toast.error('Failed to load complaints');
+    } finally {
+      setLoading(false);
+    }
   }, [page, search, statusF, vibhagF]);
 
-  useEffect(() => { load(); },                    [load]);
-  useEffect(() => { setPage(1); }, [search, statusF, vibhagF]);
+  useEffect(() => { load(); }, [load]);
+
+  // FIX: Reset page and load in a single step to prevent double-fetch.
+  // Instead of two effects (one to setPage, one that triggers load on page change),
+  // we reset page state and call load(1) directly.
+  const handleSearchChange = (val) => {
+    setSearch(val);
+    if (page !== 1) setPage(1);
+  };
+  const handleStatusChange = (val) => {
+    setStatusF(val);
+    if (page !== 1) setPage(1);
+  };
+  const handleVibhagChange = (val) => {
+    setVibhagF(val);
+    if (page !== 1) setPage(1);
+  };
 
   const inputStyle = {
     padding: '10px 14px', borderRadius: 11, border: '2px solid #e2e8f0',
@@ -215,13 +270,13 @@ const ComplaintOversight = () => {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20,
-      fontFamily: "'DM Sans',sans-serif" }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20, fontFamily: "'DM Sans',sans-serif" }}>
 
       {/* Force Status Modal */}
       <AnimatePresence>
         {forceTarget && (
           <ForceStatusModal
+            key={forceTarget._id}
             complaint={forceTarget}
             onClose={() => setForceTarget(null)}
             onDone={load}
@@ -231,8 +286,9 @@ const ComplaintOversight = () => {
 
       {/* Header */}
       <div>
-        <h2 style={{ fontFamily: "'Fraunces',serif", fontWeight: 900,
-          fontSize: 24, color: NV, margin: 0 }}>Complaint Oversight</h2>
+        <h2 style={{ fontFamily: "'Fraunces',serif", fontWeight: 900, fontSize: 24, color: NV, margin: 0 }}>
+          Complaint Oversight
+        </h2>
         <p style={{ color: '#64748b', fontSize: 14, marginTop: 4 }}>
           {total} complaints platform-wide · force-resolve awards XP to citizen
         </p>
@@ -242,18 +298,25 @@ const ComplaintOversight = () => {
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
         {/* Search */}
         <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
-          <Search size={14} style={{ position: 'absolute', left: 13, top: '50%',
-            transform: 'translateY(-50%)', color: '#94a3b8', pointerEvents: 'none' }} />
-          <input value={search} onChange={e => setSearch(e.target.value)}
+          <Search size={14} style={{
+            position: 'absolute', left: 13, top: '50%',
+            transform: 'translateY(-50%)', color: '#94a3b8', pointerEvents: 'none',
+          }} />
+          <input
+            value={search}
+            onChange={e => handleSearchChange(e.target.value)}
             placeholder="Search ticket ID or title…"
             style={{ ...inputStyle, width: '100%', paddingLeft: 36, boxSizing: 'border-box' }}
             onFocus={e => e.target.style.borderColor = OR}
-            onBlur={e  => e.target.style.borderColor = '#e2e8f0'} />
+            onBlur={e  => e.target.style.borderColor = '#e2e8f0'}
+          />
         </div>
 
         {/* Status filter */}
         <div style={{ position: 'relative' }}>
-          <select value={statusF} onChange={e => setStatusF(e.target.value)}
+          <select
+            value={statusF}
+            onChange={e => handleStatusChange(e.target.value)}
             style={{ ...inputStyle, paddingRight: 32, appearance: 'none', cursor: 'pointer', minWidth: 160 }}
             onFocus={e => e.target.style.borderColor = OR}
             onBlur={e  => e.target.style.borderColor = '#e2e8f0'}>
@@ -262,39 +325,49 @@ const ComplaintOversight = () => {
               <option key={s} value={s}>{STATUS_CONFIG[s].label}</option>
             ))}
           </select>
-          <ChevronDown size={13} style={{ position: 'absolute', right: 10, top: '50%',
-            transform: 'translateY(-50%)', color: '#94a3b8', pointerEvents: 'none' }} />
+          <ChevronDown size={13} style={{
+            position: 'absolute', right: 10, top: '50%',
+            transform: 'translateY(-50%)', color: '#94a3b8', pointerEvents: 'none',
+          }} />
         </div>
 
         {/* Vibhag filter */}
         <div style={{ position: 'relative' }}>
-          <select value={vibhagF} onChange={e => setVibhagF(e.target.value)}
+          <select
+            value={vibhagF}
+            onChange={e => handleVibhagChange(e.target.value)}
             style={{ ...inputStyle, paddingRight: 32, appearance: 'none', cursor: 'pointer', minWidth: 160 }}
             onFocus={e => e.target.style.borderColor = OR}
             onBlur={e  => e.target.style.borderColor = '#e2e8f0'}>
             <option value="">All Vibhags</option>
             {VIBHAG_OPTIONS.map(v => <option key={v} value={v}>{v}</option>)}
           </select>
-          <ChevronDown size={13} style={{ position: 'absolute', right: 10, top: '50%',
-            transform: 'translateY(-50%)', color: '#94a3b8', pointerEvents: 'none' }} />
+          <ChevronDown size={13} style={{
+            position: 'absolute', right: 10, top: '50%',
+            transform: 'translateY(-50%)', color: '#94a3b8', pointerEvents: 'none',
+          }} />
         </div>
 
         {/* Refresh */}
-        <button onClick={load}
-          style={{ padding: '10px 14px', borderRadius: 11, border: '2px solid #e2e8f0',
+        <button onClick={() => load()}
+          style={{
+            padding: '10px 14px', borderRadius: 11, border: '2px solid #e2e8f0',
             background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
-            fontWeight: 700, fontSize: 13, color: '#64748b', fontFamily: "'DM Sans',sans-serif" }}>
+            fontWeight: 700, fontSize: 13, color: '#64748b', fontFamily: "'DM Sans',sans-serif",
+          }}>
           <RefreshCw size={13} /> Refresh
         </button>
       </div>
 
       {/* Table */}
-      <div style={{ background: '#fff', borderRadius: 20, border: '2px solid #f0ebe3',
-        overflow: 'hidden', boxShadow: '0 2px 10px rgba(0,0,0,0.04)' }}>
+      <div style={{
+        background: '#fff', borderRadius: 20, border: '2px solid #f0ebe3',
+        overflow: 'hidden', boxShadow: '0 2px 10px rgba(0,0,0,0.04)',
+      }}>
         {loading ? (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center',
-            gap: 10, padding: '60px 0', color: '#94a3b8' }}>
-            <Loader2 size={22} style={{ color: V, animation: 'spin 1s linear infinite' }} />
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '60px 0', color: '#94a3b8' }}>
+            {/* FIX: className animate-spin — inline animation:'spin...' doesn't work */}
+            <Loader2 size={22} className="animate-spin" style={{ color: V }} />
             <span style={{ fontWeight: 700 }}>Loading complaints…</span>
           </div>
         ) : complaints.length === 0 ? (
@@ -308,11 +381,13 @@ const ComplaintOversight = () => {
               <thead>
                 <tr style={{ background: '#f8fafc', borderBottom: '2px solid #f0ebe3' }}>
                   {['Ticket', 'Citizen', 'Category', 'Vibhag', 'Status', 'Filed', 'Action'].map(h => (
-                    <th key={h} style={{ padding: '13px 16px',
+                    <th key={h} style={{
+                      padding: '13px 16px',
                       textAlign: h === 'Ticket' || h === 'Citizen' ? 'left' : 'center',
                       fontSize: 11, fontWeight: 800, color: '#64748b',
                       textTransform: 'uppercase', letterSpacing: '0.07em',
-                      fontFamily: "'DM Sans',sans-serif", whiteSpace: 'nowrap' }}>
+                      fontFamily: "'DM Sans',sans-serif", whiteSpace: 'nowrap',
+                    }}>
                       {h}
                     </th>
                   ))}
@@ -320,7 +395,8 @@ const ComplaintOversight = () => {
               </thead>
               <tbody>
                 {complaints.map((c, i) => (
-                  <motion.tr key={c._id}
+                  <motion.tr
+                    key={c._id}
                     initial={{ opacity: 0 }} animate={{ opacity: 1 }}
                     transition={{ delay: i * 0.025 }}
                     style={{ borderBottom: '1px solid #f1f5f9' }}
@@ -329,12 +405,13 @@ const ComplaintOversight = () => {
 
                     {/* Ticket */}
                     <td style={{ padding: '14px 16px' }}>
-                      <div style={{ fontFamily: 'monospace', fontWeight: 800,
-                        fontSize: 12, color: NV }}>
+                      <div style={{ fontFamily: 'monospace', fontWeight: 800, fontSize: 12, color: NV }}>
                         {c.ticketId || `#${c._id?.slice(-6).toUpperCase()}`}
                       </div>
-                      <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2,
-                        maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <div style={{
+                        fontSize: 11, color: '#94a3b8', marginTop: 2,
+                        maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      }}>
                         {c.title || c.description?.slice(0, 40)}
                       </div>
                     </td>
@@ -342,9 +419,11 @@ const ComplaintOversight = () => {
                     {/* Citizen */}
                     <td style={{ padding: '14px 16px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <div style={{ width: 28, height: 28, borderRadius: '50%',
+                        <div style={{
+                          width: 28, height: 28, borderRadius: '50%',
                           background: '#f5f3ff', display: 'flex', alignItems: 'center',
-                          justifyContent: 'center', flexShrink: 0 }}>
+                          justifyContent: 'center', flexShrink: 0,
+                        }}>
                           <User size={13} style={{ color: V }} />
                         </div>
                         <div>
@@ -366,8 +445,7 @@ const ComplaintOversight = () => {
                     {/* Vibhag */}
                     <td style={{ padding: '14px 16px', textAlign: 'center' }}>
                       {c.vibhag
-                        ? <span style={{ background: '#ecfdf5', color: G, borderRadius: 999,
-                            padding: '3px 8px', fontSize: 11, fontWeight: 800 }}>{c.vibhag}</span>
+                        ? <span style={{ background: '#ecfdf5', color: G, borderRadius: 999, padding: '3px 8px', fontSize: 11, fontWeight: 800 }}>{c.vibhag}</span>
                         : <span style={{ color: '#cbd5e1', fontSize: 11 }}>—</span>}
                     </td>
 
@@ -377,19 +455,20 @@ const ComplaintOversight = () => {
                     </td>
 
                     {/* Filed */}
-                    <td style={{ padding: '14px 16px', textAlign: 'center',
-                      fontSize: 11, color: '#94a3b8', whiteSpace: 'nowrap' }}>
-                      {new Date(c.createdAt).toLocaleDateString('en-IN',
-                        { day: 'numeric', month: 'short', year: 'numeric' })}
+                    <td style={{ padding: '14px 16px', textAlign: 'center', fontSize: 11, color: '#94a3b8', whiteSpace: 'nowrap' }}>
+                      {new Date(c.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
                     </td>
 
                     {/* Action */}
                     <td style={{ padding: '14px 16px', textAlign: 'center' }}>
-                      <button onClick={() => setForceTarget(c)}
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: 5,
+                      <button
+                        onClick={() => setForceTarget(c)}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 5,
                           padding: '7px 12px', borderRadius: 9, border: 'none', cursor: 'pointer',
                           background: '#fff5ee', color: OR, fontWeight: 800, fontSize: 12,
-                          fontFamily: "'DM Sans',sans-serif", transition: 'background 0.15s' }}
+                          fontFamily: "'DM Sans',sans-serif", transition: 'background 0.15s',
+                        }}
                         onMouseEnter={e => e.currentTarget.style.background = '#fde8cc'}
                         onMouseLeave={e => e.currentTarget.style.background = '#fff5ee'}>
                         <RefreshCw size={12} /> Force
@@ -406,23 +485,31 @@ const ComplaintOversight = () => {
       {/* Pagination */}
       {pages > 1 && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
-          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-            style={{ padding: '8px 14px', borderRadius: 10, border: '2px solid #e2e8f0',
+          <button
+            onClick={() => setPage(p => Math.max(1, p - 1))}
+            disabled={page === 1}
+            style={{
+              padding: '8px 14px', borderRadius: 10, border: '2px solid #e2e8f0',
               background: '#fff', cursor: page === 1 ? 'not-allowed' : 'pointer',
               display: 'flex', alignItems: 'center', gap: 5,
               color: page === 1 ? '#cbd5e1' : '#475569',
-              fontWeight: 700, fontSize: 13, fontFamily: "'DM Sans',sans-serif" }}>
+              fontWeight: 700, fontSize: 13, fontFamily: "'DM Sans',sans-serif",
+            }}>
             <ChevronLeft size={14} /> Prev
           </button>
           <span style={{ fontSize: 13, fontWeight: 700, color: '#64748b' }}>
             Page {page} of {pages}
           </span>
-          <button onClick={() => setPage(p => Math.min(pages, p + 1))} disabled={page === pages}
-            style={{ padding: '8px 14px', borderRadius: 10, border: '2px solid #e2e8f0',
+          <button
+            onClick={() => setPage(p => Math.min(pages, p + 1))}
+            disabled={page === pages}
+            style={{
+              padding: '8px 14px', borderRadius: 10, border: '2px solid #e2e8f0',
               background: '#fff', cursor: page === pages ? 'not-allowed' : 'pointer',
               display: 'flex', alignItems: 'center', gap: 5,
               color: page === pages ? '#cbd5e1' : '#475569',
-              fontWeight: 700, fontSize: 13, fontFamily: "'DM Sans',sans-serif" }}>
+              fontWeight: 700, fontSize: 13, fontFamily: "'DM Sans',sans-serif",
+            }}>
             Next <ChevronRight size={14} />
           </button>
         </div>

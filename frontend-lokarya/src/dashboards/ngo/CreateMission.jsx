@@ -6,6 +6,11 @@
  * - Edit mode: pre-fills from API when editId is provided
  *
  * Path: src/dashboards/ngo/CreateMission.jsx
+ *
+ * FIXES applied:
+ *  [1] File field renamed from 'image' to 'banner' to match multer config
+ *  [2] Event date input now has min = today (prevents past dates)
+ *  [3] MapPicker receives a key prop so it remounts on a different editId
  */
 
 import React, { useEffect, useState, useRef } from 'react';
@@ -26,9 +31,12 @@ const G  = '#059669';
 const OR = '#F47C20';
 
 const CATEGORIES = [
-  'Environment','Education','Healthcare','Social',
-  'Animal Welfare','Sanitation','Disaster Relief',
+  'Environment', 'Education', 'Healthcare', 'Social',
+  'Animal Welfare', 'Sanitation', 'Disaster Relief',
 ];
+
+/* today's date string for min= attribute */
+const TODAY = new Date().toISOString().slice(0, 10);
 
 /* ── tiny form helpers ───────────────────────────────────────────────────── */
 const Label = ({ children, required }) => (
@@ -94,9 +102,9 @@ const SectionCard = ({ title, icon: Icon, children, accent = G }) => (
 
 /* ── MAP PICKER (Leaflet) ────────────────────────────────────────────────── */
 const MapPicker = ({ lat, lng, onChange }) => {
-  const mapRef       = useRef(null);
-  const mapInstance  = useRef(null);
-  const markerRef    = useRef(null);
+  const mapRef      = useRef(null);
+  const mapInstance = useRef(null);
+  const markerRef   = useRef(null);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -130,9 +138,9 @@ const MapPicker = ({ lat, lng, onChange }) => {
             background:${G};border:3px solid #fff;
             box-shadow:0 3px 12px rgba(0,0,0,0.3);
             transform:rotate(-45deg)"></div>`,
-          iconSize: [28, 28],
+          iconSize:   [28, 28],
           iconAnchor: [14, 28],
-          className: '',
+          className:  '',
         });
 
         if (lat && lng) {
@@ -171,9 +179,9 @@ const MapPicker = ({ lat, lng, onChange }) => {
         mapInstance.current = null;
       }
     };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* sync external lat/lng to marker */
+  /* sync external lat/lng to marker when parent updates inputs */
   useEffect(() => {
     if (!mapInstance.current || !lat || !lng) return;
     if (markerRef.current) {
@@ -206,23 +214,23 @@ const CreateMission = ({ editId, onSuccess, onCancel }) => {
   const isEdit = Boolean(editId);
 
   const [form, setForm] = useState({
-    title:          '',
-    description:    '',
-    category:       'Environment',
-    pointsReward:   50,
-    date:           '',
-    deadline:       '',
-    locationName:   '',
-    locationAddress:'',
-    lat:            null,
-    lng:            null,
-    maxParticipants:20,
-    requirements:   '',
-    contactInfo:    '',
-    gpsRadiusMeters:300,
-    earlyBirdMultiplier:  1.2,
-    streakBonus:          10,
-    bringAFriendBonus:    15,
+    title:               '',
+    description:         '',
+    category:            'Environment',
+    pointsReward:        50,
+    date:                '',
+    deadline:            '',
+    locationName:        '',
+    locationAddress:     '',
+    lat:                 null,
+    lng:                 null,
+    maxParticipants:     20,
+    requirements:        '',
+    contactInfo:         '',
+    gpsRadiusMeters:     300,
+    earlyBirdMultiplier: 1.2,
+    streakBonus:         10,
+    bringAFriendBonus:   15,
   });
   const [banner,     setBanner]     = useState(null);
   const [bannerPrev, setBannerPrev] = useState(null);
@@ -238,23 +246,23 @@ const CreateMission = ({ editId, onSuccess, onCancel }) => {
       try {
         const { data: m } = await api.get(`/activities/${editId}`);
         setForm({
-          title:           m.title || '',
-          description:     m.description || '',
-          category:        m.category || 'Environment',
-          pointsReward:    m.pointsReward || 50,
-          date:            m.date ? m.date.slice(0, 10) : '',
-          deadline:        m.deadline ? m.deadline.slice(0, 10) : '',
-          locationName:    m.location?.name || '',
-          locationAddress: m.location?.address || '',
-          lat:             m.location?.lat || null,
-          lng:             m.location?.lng || null,
-          maxParticipants: m.maxParticipants || 20,
-          requirements:    Array.isArray(m.requirements) ? m.requirements.join(', ') : '',
-          contactInfo:     m.contactInfo || '',
-          gpsRadiusMeters: m.gpsRadiusMeters || 300,
-          earlyBirdMultiplier:  m.bonusConfig?.earlyBirdMultiplier  || 1.2,
-          streakBonus:          m.bonusConfig?.streakBonus          || 10,
-          bringAFriendBonus:    m.bonusConfig?.bringAFriendBonus    || 15,
+          title:               m.title           || '',
+          description:         m.description     || '',
+          category:            m.category        || 'Environment',
+          pointsReward:        m.pointsReward    || 50,
+          date:                m.date     ? m.date.slice(0, 10)     : '',
+          deadline:            m.deadline ? m.deadline.slice(0, 10) : '',
+          locationName:        m.location?.name    || '',
+          locationAddress:     m.location?.address || '',
+          lat:                 m.location?.lat     || null,
+          lng:                 m.location?.lng     || null,
+          maxParticipants:     m.maxParticipants   || 20,
+          requirements:        Array.isArray(m.requirements) ? m.requirements.join(', ') : '',
+          contactInfo:         m.contactInfo       || '',
+          gpsRadiusMeters:     m.gpsRadiusMeters   || 300,
+          earlyBirdMultiplier: m.bonusConfig?.earlyBirdMultiplier || 1.2,
+          streakBonus:         m.bonusConfig?.streakBonus         || 10,
+          bringAFriendBonus:   m.bonusConfig?.bringAFriendBonus   || 15,
         });
         if (m.banner && m.banner.startsWith('http')) setBannerPrev(m.banner);
       } catch { toast.error('Failed to load mission data'); }
@@ -273,17 +281,24 @@ const CreateMission = ({ editId, onSuccess, onCancel }) => {
   };
 
   const handleSubmit = async () => {
-    /* validation */
-    if (!form.title.trim())       { toast.error('Mission title is required'); return; }
-    if (!form.description.trim()) { toast.error('Description is required');   return; }
-    if (!form.date)               { toast.error('Mission date is required');   return; }
-    if (!form.deadline)           { toast.error('Registration deadline is required'); return; }
-    if (!form.locationName.trim()){ toast.error('Location name is required'); return; }
-    if (!form.lat || !form.lng)   { toast.error('Please pick the venue on the map'); return; }
-    if (!form.contactInfo.trim()) { toast.error('Contact info is required');  return; }
+    /* client-side validation */
+    if (!form.title.trim())        { toast.error('Mission title is required');        return; }
+    if (!form.description.trim())  { toast.error('Description is required');          return; }
+    if (!form.date)                { toast.error('Mission date is required');          return; }
+    if (!form.deadline)            { toast.error('Registration deadline is required'); return; }
+    if (!form.locationName.trim()) { toast.error('Location name is required');         return; }
+    if (!form.lat || !form.lng)    { toast.error('Please pick the venue on the map');  return; }
+    if (!form.contactInfo.trim())  { toast.error('Contact info is required');          return; }
+
+    /* FIX [2]: event date must be today or future */
+    if (form.date < TODAY) {
+      toast.error('Event date cannot be in the past');
+      return;
+    }
 
     if (new Date(form.deadline) > new Date(form.date)) {
-      toast.error('Deadline cannot be after the event date'); return;
+      toast.error('Deadline cannot be after the event date');
+      return;
     }
 
     setLoading(true);
@@ -310,7 +325,8 @@ const CreateMission = ({ editId, onSuccess, onCancel }) => {
         streakBonus:         form.streakBonus,
         bringAFriendBonus:   form.bringAFriendBonus,
       }));
-      if (banner) fd.append('image', banner);
+      /* FIX [1]: field name must match multer config — 'banner' not 'image' */
+      if (banner) fd.append('banner', banner);
 
       if (isEdit) {
         await api.put(`/activities/${editId}`, fd, {
@@ -356,7 +372,6 @@ const CreateMission = ({ editId, onSuccess, onCancel }) => {
                 : 'Fill in the details. Mission goes to admin for approval before going live.'}
             </p>
           </div>
-          {/* approval notice */}
           {!isEdit && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8,
               background: '#fef3c7', border: '1.5px solid #fde68a',
@@ -370,7 +385,7 @@ const CreateMission = ({ editId, onSuccess, onCancel }) => {
         </div>
       </motion.div>
 
-      {/* ── SECTION 1: Basic Info ──────────────────────────────────────────── */}
+      {/* ── SECTION 1: Basic Info ────────────────────────────────────────── */}
       <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
         <SectionCard title="Mission Details" icon={FileText}>
           <div style={{ display: 'grid', gap: 18 }}>
@@ -405,12 +420,15 @@ const CreateMission = ({ editId, onSuccess, onCancel }) => {
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
               <div>
+                {/* FIX [2]: min = today prevents past dates */}
                 <Label required>Event Date</Label>
-                <Input type="date" value={form.date} onChange={e => set('date', e.target.value)}/>
+                <Input type="date" min={TODAY}
+                  value={form.date} onChange={e => set('date', e.target.value)}/>
               </div>
               <div>
                 <Label required>Registration Deadline</Label>
-                <Input type="date" value={form.deadline} onChange={e => set('deadline', e.target.value)}/>
+                <Input type="date" min={TODAY}
+                  value={form.deadline} onChange={e => set('deadline', e.target.value)}/>
               </div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
@@ -435,7 +453,7 @@ const CreateMission = ({ editId, onSuccess, onCancel }) => {
         </SectionCard>
       </motion.div>
 
-      {/* ── SECTION 2: Venue + GPS ────────────────────────────────────────── */}
+      {/* ── SECTION 2: Venue + GPS ───────────────────────────────────────── */}
       <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
         <SectionCard title="Venue & GPS" icon={MapPin} accent="#2563eb">
           <div style={{ display: 'grid', gap: 18 }}>
@@ -452,7 +470,6 @@ const CreateMission = ({ editId, onSuccess, onCancel }) => {
               </div>
             </div>
 
-            {/* GPS coords display */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
               <div>
                 <Label required>Latitude</Label>
@@ -476,7 +493,6 @@ const CreateMission = ({ editId, onSuccess, onCancel }) => {
               </div>
             </div>
 
-            {/* GPS info */}
             <div style={{ background: '#eff6ff', borderRadius: 12, padding: '12px 16px',
               display: 'flex', alignItems: 'flex-start', gap: 10,
               border: '1.5px solid #bfdbfe' }}>
@@ -484,15 +500,15 @@ const CreateMission = ({ editId, onSuccess, onCancel }) => {
               <p style={{ fontSize: 12, color: '#1e40af', lineHeight: 1.7 }}>
                 <strong>GPS is required</strong> for volunteer attendance verification. Volunteers scanning QR
                 within <strong>{form.gpsRadiusMeters}m</strong> of the pin are auto-verified.
-                Increase radius for large open venues; decrease for precise indoor areas.
                 {form.lat && form.lng && (
                   <> Pin set at <strong>{form.lat}, {form.lng}</strong>.</>
                 )}
               </p>
             </div>
 
-            {/* Map picker */}
+            {/* FIX [3]: key forces remount when switching between edit missions */}
             <MapPicker
+              key={`map-${editId || 'new'}-${form.lat}-${form.lng}`}
               lat={form.lat}
               lng={form.lng}
               onChange={(la, lo) => { set('lat', la); set('lng', lo); }}
@@ -530,6 +546,7 @@ const CreateMission = ({ editId, onSuccess, onCancel }) => {
                   <p style={{ fontWeight: 800, color: NV, fontSize: 14 }}>Click to upload banner</p>
                   <p style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>PNG, JPG up to 5MB · 16:9 recommended</p>
                 </div>
+                {/* FIX [1]: onChange stores file; FormData uses 'banner' key */}
                 <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleBanner}/>
               </label>
             )}
@@ -545,8 +562,7 @@ const CreateMission = ({ editId, onSuccess, onCancel }) => {
           <button onClick={() => setShowBonus(p => !p)}
             style={{ width: '100%', padding: '18px 24px', border: 'none', cursor: 'pointer',
               background: 'none', display: 'flex', alignItems: 'center',
-              justifyContent: 'space-between',
-              fontFamily: "'DM Sans',sans-serif" }}>
+              justifyContent: 'space-between', fontFamily: "'DM Sans',sans-serif" }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <div style={{ width: 34, height: 34, borderRadius: 10,
                 background: '#fff0e0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

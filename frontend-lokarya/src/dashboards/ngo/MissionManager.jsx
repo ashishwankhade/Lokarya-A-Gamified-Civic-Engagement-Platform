@@ -1,20 +1,28 @@
 /**
  * MissionManager.jsx
  * Full CRUD list of NGO's own missions.
+ *
  * Path: src/dashboards/ngo/MissionManager.jsx
+ *
+ * FIXES applied:
+ *  [1] Uses useMyMissions hook → correct endpoint, all statuses visible
+ *  [2] DeleteModal wrapped with createPortal (prevents overflow:hidden clipping)
+ *  [3] Uses shared StatusChip component
+ *  [4] AttendeeRow key uses user._id instead of array index
  */
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   PlusCircle, Pencil, Trash2, QrCode, Users,
-  CalendarDays, MapPin, Zap, Search, Filter,
-  ChevronDown, AlertTriangle, X, Loader2,
-  Clock, CheckCircle2, XCircle,
+  CalendarDays, MapPin, Zap, Search,
+  AlertTriangle, Loader2,
 } from 'lucide-react';
-import api      from '../../api/axios';
-import { toast } from 'react-toastify';
-import { useAuth } from '../../context/AuthContext';
+import { createPortal } from 'react-dom';
+import api          from '../../api/axios';
+import { toast }    from 'react-toastify';
+import useMyMissions from '../../hooks/useMyMissions';   // FIX [1]
+import StatusChip    from '../../components/StatusChip'; // FIX [3]
 
 const NV = '#0f2c4a';
 const G  = '#059669';
@@ -22,46 +30,24 @@ const OR = '#F47C20';
 
 /* ── CAT COLORS ─────────────────────────────────────────────────────────── */
 const CAT = {
-  Environment:      { c: '#059669', bg: '#ecfdf5', e: '🌱' },
-  Education:        { c: '#2563eb', bg: '#dbeafe', e: '📚' },
-  Healthcare:       { c: '#dc2626', bg: '#fee2e2', e: '❤️'  },
-  Social:           { c: '#7c3aed', bg: '#ede9fe', e: '🤝' },
-  'Animal Welfare': { c: '#d97706', bg: '#fef3c7', e: '🐾' },
-  Sanitation:       { c: '#0891b2', bg: '#e0f2fe', e: '🧹' },
-  'Disaster Relief':{ c: '#ea580c', bg: '#ffedd5', e: '🚨' },
+  Environment:       { c: '#059669', bg: '#ecfdf5', e: '🌱' },
+  Education:         { c: '#2563eb', bg: '#dbeafe', e: '📚' },
+  Healthcare:        { c: '#dc2626', bg: '#fee2e2', e: '❤️'  },
+  Social:            { c: '#7c3aed', bg: '#ede9fe', e: '🤝' },
+  'Animal Welfare':  { c: '#d97706', bg: '#fef3c7', e: '🐾' },
+  Sanitation:        { c: '#0891b2', bg: '#e0f2fe', e: '🧹' },
+  'Disaster Relief': { c: '#ea580c', bg: '#ffedd5', e: '🚨' },
 };
 
-/* ── STATUS META ─────────────────────────────────────────────────────────── */
-const STATUS_META = {
-  open:             { label: 'Open',             bg: '#ecfdf5', c: '#059669', Icon: CheckCircle2 },
-  draft:            { label: 'Pending Approval',  bg: '#fef3c7', c: '#92400e', Icon: Clock        },
-  pending_approval: { label: 'Pending Approval',  bg: '#fef3c7', c: '#92400e', Icon: Clock        },
-  ongoing:          { label: 'Ongoing',           bg: '#eff6ff', c: '#2563eb', Icon: Zap           },
-  ended:            { label: 'Ended',             bg: '#f1f5f9', c: '#475569', Icon: Clock         },
-  completed:        { label: 'Completed',         bg: '#f5f3ff', c: '#7c3aed', Icon: CheckCircle2  },
-  rejected:         { label: 'Rejected',          bg: '#fee2e2', c: '#b91c1c', Icon: XCircle       },
-};
-
-const StatusChip = ({ status, adminStatus }) => {
-  const key = adminStatus === 'rejected' ? 'rejected'
-    : (adminStatus === 'pending_approval' || status === 'draft') ? 'pending_approval'
-    : status;
-  const m = STATUS_META[key] || STATUS_META.open;
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5,
-      background: m.bg, color: m.c, borderRadius: 999,
-      padding: '4px 12px', fontSize: 11, fontWeight: 800, letterSpacing: '0.05em' }}>
-      <m.Icon size={11}/> {m.label}
-    </span>
-  );
-};
-
-/* ── DELETE CONFIRM MODAL ────────────────────────────────────────────────── */
-const DeleteModal = ({ mission, onConfirm, onCancel, loading }) => (
+/* ── DELETE CONFIRM MODAL ─────────────────────────────────────────────────
+   FIX [2]: uses createPortal to escape parent overflow:hidden
+─────────────────────────────────────────────────────────────────────────── */
+const DeleteModal = ({ mission, onConfirm, onCancel, loading }) => createPortal(
   <div style={{ position: 'fixed', inset: 0, zIndex: 9999,
     display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-      style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)' }}
+      style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.55)',
+        backdropFilter: 'blur(4px)' }}
       onClick={onCancel}/>
     <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
       style={{ position: 'relative', zIndex: 1, background: '#fff', borderRadius: 22,
@@ -91,36 +77,19 @@ const DeleteModal = ({ mission, onConfirm, onCancel, loading }) => (
         </button>
       </div>
     </motion.div>
-  </div>
+  </div>,
+  document.body
 );
 
 /* ── MAIN ────────────────────────────────────────────────────────────────── */
 const MissionManager = ({ onEdit, onOpenAttendance, onGoToCreate }) => {
-  const { user }                    = useAuth();
-  const [missions,  setMissions]    = useState([]);
-  const [loading,   setLoading]     = useState(true);
-  const [search,    setSearch]      = useState('');
-  const [filter,    setFilter]      = useState('all');  // all | open | pending | completed
-  const [toDelete,  setToDelete]    = useState(null);
-  const [deleting,  setDeleting]    = useState(false);
+  // FIX [1]: useMyMissions handles endpoint + filtering correctly
+  const { missions, loading, reload } = useMyMissions();
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const { data } = await api.get('/activities');
-      // Filter to only this NGO's missions
-      const mine = Array.isArray(data)
-        ? data.filter(m => {
-            const ngoId = typeof m.ngo === 'object' ? m.ngo._id : m.ngo;
-            return ngoId?.toString() === user?._id?.toString();
-          })
-        : [];
-      setMissions(mine);
-    } catch { toast.error('Failed to load missions'); }
-    finally   { setLoading(false); }
-  }, [user]);
-
-  useEffect(() => { load(); }, [load]);
+  const [search,   setSearch]   = useState('');
+  const [filter,   setFilter]   = useState('all');
+  const [toDelete, setToDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   const handleDelete = async () => {
     if (!toDelete) return;
@@ -129,7 +98,7 @@ const MissionManager = ({ onEdit, onOpenAttendance, onGoToCreate }) => {
       await api.delete(`/activities/${toDelete._id}`);
       toast.success('Mission deleted.');
       setToDelete(null);
-      load();
+      reload();
     } catch (e) {
       toast.error(e.response?.data?.message || 'Delete failed');
     } finally { setDeleting(false); }
@@ -137,9 +106,9 @@ const MissionManager = ({ onEdit, onOpenAttendance, onGoToCreate }) => {
 
   /* filter + search */
   const displayed = missions.filter(m => {
-    const key = m.adminStatus === 'rejected' ? 'rejected'
-      : (m.adminStatus === 'pending_approval' || m.status === 'draft') ? 'pending'
-      : m.status === 'completed' ? 'completed'
+    const key = m.adminStatus === 'rejected'                              ? 'rejected'
+      : (m.adminStatus === 'pending_approval' || m.status === 'draft')   ? 'pending'
+      : m.status === 'completed'                                          ? 'completed'
       : 'open';
     if (filter !== 'all' && key !== filter) return false;
     if (search && !m.title.toLowerCase().includes(search.toLowerCase())) return false;
@@ -180,7 +149,6 @@ const MissionManager = ({ onEdit, onOpenAttendance, onGoToCreate }) => {
 
       {/* search + filter bar */}
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-        {/* search */}
         <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
           <Search size={15} style={{ position: 'absolute', left: 13, top: '50%',
             transform: 'translateY(-50%)', color: '#94a3b8' }}/>
@@ -191,7 +159,6 @@ const MissionManager = ({ onEdit, onOpenAttendance, onGoToCreate }) => {
               fontFamily: "'DM Sans',sans-serif", outline: 'none',
               background: '#fff', color: NV }}/>
         </div>
-        {/* filter pills */}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {FILTERS.map(f => (
             <button key={f.id} onClick={() => setFilter(f.id)}
@@ -238,9 +205,9 @@ const MissionManager = ({ onEdit, onOpenAttendance, onGoToCreate }) => {
               const cat      = CAT[m.category] || { c: '#64748b', bg: '#f1f5f9', e: '📋' };
               const regCount = m.attendance?.filter(a => a.registrationStatus === 'registered').length
                 || m.participants?.length || 0;
-              const maxP     = m.maxParticipants || 1;
-              const pct      = Math.min(100, Math.round((regCount / maxP) * 100));
-              const isOpen   = m.adminStatus === 'approved' && m.status === 'open';
+              const maxP = m.maxParticipants || 1;
+              const pct  = Math.min(100, Math.round((regCount / maxP) * 100));
+              const isOpen = m.adminStatus === 'approved' && m.status === 'open';
 
               return (
                 <motion.div key={m._id}
@@ -248,26 +215,24 @@ const MissionManager = ({ onEdit, onOpenAttendance, onGoToCreate }) => {
                   exit={{ opacity: 0, x: -20 }} transition={{ delay: i * 0.04 }}
                   style={{ background: '#fff', borderRadius: 18,
                     border: '2px solid #f0ebe3',
-                    boxShadow: '0 2px 10px rgba(0,0,0,0.04)',
-                    overflow: 'hidden' }}>
+                    boxShadow: '0 2px 10px rgba(0,0,0,0.04)', overflow: 'hidden' }}>
 
                   <div style={{ display: 'flex', gap: 0 }}>
                     {/* left color strip */}
                     <div style={{ width: 5, background: cat.c, flexShrink: 0 }}/>
 
                     {/* banner thumbnail */}
-                    <div style={{ width: 110, flexShrink: 0, position: 'relative',
-                      overflow: 'hidden' }}>
-                      <img src={m.banner || 'https://images.unsplash.com/photo-1560252829-804f1aedf1be?q=80&w=300'}
+                    <div style={{ width: 110, flexShrink: 0, position: 'relative', overflow: 'hidden' }}>
+                      <img
+                        src={m.banner || 'https://images.unsplash.com/photo-1560252829-804f1aedf1be?q=80&w=300'}
                         alt={m.title}
                         style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}/>
-                      <div style={{ position: 'absolute', inset: 0,
-                        background: 'linear-gradient(to right,transparent,rgba(255,255,255,0.08))' }}/>
                     </div>
 
                     {/* content */}
                     <div style={{ flex: 1, padding: '16px 20px', minWidth: 0,
                       display: 'flex', flexDirection: 'column', gap: 10 }}>
+
                       {/* top row */}
                       <div style={{ display: 'flex', alignItems: 'flex-start',
                         justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
@@ -278,6 +243,7 @@ const MissionManager = ({ onEdit, onOpenAttendance, onGoToCreate }) => {
                               textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                               {cat.e} {m.category}
                             </span>
+                            {/* FIX [3]: shared StatusChip */}
                             <StatusChip status={m.status} adminStatus={m.adminStatus}/>
                           </div>
                           <h3 style={{ fontFamily: "'Fraunces',serif", fontWeight: 700,
@@ -337,8 +303,7 @@ const MissionManager = ({ onEdit, onOpenAttendance, onGoToCreate }) => {
 
                       {/* volunteers progress */}
                       <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between',
-                          marginBottom: 5 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
                           <span style={{ fontSize: 11, color: '#64748b', fontWeight: 700,
                             display: 'flex', alignItems: 'center', gap: 4 }}>
                             <Users size={11} style={{ color: G }}/>{regCount}/{maxP} registered
@@ -360,7 +325,7 @@ const MissionManager = ({ onEdit, onOpenAttendance, onGoToCreate }) => {
         </div>
       )}
 
-      {/* Delete modal */}
+      {/* Delete modal — FIX [2]: createPortal */}
       <AnimatePresence>
         {toDelete && (
           <DeleteModal

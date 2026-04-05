@@ -1,10 +1,4 @@
 // services/twilioWhatsAppService.js
-// Handles WhatsApp notifications via Twilio for 3 citizen/worker events.
-// Requires in .env:
-//   TWILIO_ACCOUNT_SID
-//   TWILIO_AUTH_TOKEN
-//   TWILIO_WHATSAPP_FROM   → e.g. whatsapp:+14155238886  (Twilio sandbox or approved number)
-
 import twilio from 'twilio';
 
 const client = twilio(
@@ -12,20 +6,14 @@ const client = twilio(
   process.env.TWILIO_AUTH_TOKEN
 );
 
-const FROM = process.env.TWILIO_WHATSAPP_FROM; // whatsapp:+14155238886
+const FROM = process.env.TWILIO_WHATSAPP_FROM;
 
-/**
- * Low-level sender — all other helpers call this.
- * @param {string} to   — raw phone number, e.g. "+919876543210"
- * @param {string} body — message text
- */
 const sendWhatsAppMessage = async (to, body) => {
   if (!to) {
     console.warn('[Twilio WA] Skipped — no phone number provided.');
     return null;
   }
 
-  // Normalise: strip leading zeros / add whatsapp: prefix
   const toFormatted = `whatsapp:${to.startsWith('+') ? to : `+${to}`}`;
 
   try {
@@ -37,18 +25,12 @@ const sendWhatsAppMessage = async (to, body) => {
     console.log(`[Twilio WA] Sent to ${toFormatted} | SID: ${message.sid}`);
     return message;
   } catch (err) {
-    // Log but never crash the main request flow
     console.error(`[Twilio WA] Failed to send to ${toFormatted}:`, err.message);
     return null;
   }
 };
 
 // ─── Template 1: Citizen — Complaint Filed ────────────────────────────────────
-/**
- * @param {string} phone      citizen phone
- * @param {string} ticketId   complaint ticket ID
- * @param {string} title      complaint title
- */
 const notifyCitizenComplaintFiled = (phone, ticketId, title) =>
   sendWhatsAppMessage(
     phone,
@@ -59,32 +41,65 @@ const notifyCitizenComplaintFiled = (phone, ticketId, title) =>
     `We will keep you updated on the progress. Thank you for helping us improve our city! 🏙️`
   );
 
-// ─── Template 2: Field Worker — Assigned with Magic Link ─────────────────────
+// ─── Template 2: Field Worker — Assigned with Buttons ────────────────────────
 /**
- * @param {string} workerPhone  field worker phone
- * @param {object} complaint    Mongoose complaint doc
- * @param {string} magicLink    one-time upload URL
+ * @param {string} workerPhone
+ * @param {object} complaint
+ * @param {string} magicLink    full URL — used in plain text fallback
+ * @param {string} token        raw token only — used in Content Template button
  */
-const notifyWorkerAssigned = (workerPhone, complaint, magicLink) =>
-  sendWhatsAppMessage(
+const notifyWorkerAssigned = async (workerPhone, complaint, magicLink, token) => {
+  if (!workerPhone) {
+    console.warn('[Twilio WA] Skipped — no phone number provided.');
+    return null;
+  }
+
+  const toFormatted = `whatsapp:${workerPhone.startsWith('+') ? workerPhone : `+${workerPhone}`}`;
+
+  const lat = complaint.location?.coordinates?.[1];
+  const lng = complaint.location?.coordinates?.[0];
+  const coords = lat && lng
+    ? `${lat},${lng}`
+    : encodeURIComponent(complaint.location?.address || 'Unknown');
+
+  // ── Option A: Approved Content Template with buttons ──────────────────────
+  if (process.env.TWILIO_WORKER_TEMPLATE_SID) {
+    try {
+      const message = await client.messages.create({
+        from:       FROM,
+        to:         toFormatted,
+        contentSid: process.env.TWILIO_WORKER_TEMPLATE_SID,
+        contentVariables: JSON.stringify({
+          "1": complaint.ticketId,                      // body {{1}}
+          "2": complaint.title,                         // body {{2}}
+          "3": complaint.location?.address || 'N/A',   // body {{3}}
+          "4": complaint.category,                      // body {{4}}
+          "5": coords,   // Button 1 → https://maps.google.com/?q={{1}}
+          "6": token,    // Button 2 → https://lokarya.vercel.app/worker/upload?token={{1}}
+        }),
+      });
+      console.log(`[Twilio WA] Worker notified (template) | SID: ${message.sid}`);
+      return message;
+    } catch (err) {
+      console.error(`[Twilio WA] Template send failed, falling back to plain text:`, err.message);
+    }
+  }
+
+  // ── Option B: Plain text fallback (sandbox / template not approved yet) ───
+  return sendWhatsAppMessage(
     workerPhone,
     `🔧 *New Task Assigned!*\n\n` +
-    `Hello! You have been assigned a new complaint.\n\n` +
     `🎫 Ticket ID: *${complaint.ticketId}*\n` +
     `📋 Issue: ${complaint.title}\n` +
     `📍 Location: ${complaint.location?.address || 'See portal'}\n` +
     `🏷️ Category: ${complaint.category}\n\n` +
-    `After completing the work, please upload your proof photo using the link below:\n` +
+    `📍 *View on Maps:* https://maps.google.com/?q=${coords}\n\n` +
     `📸 *Upload Proof:* ${magicLink}\n\n` +
-    `⚠️ This link is valid for 24 hours only. Reply *1* to confirm you have accepted this task.`
+    `⚠️ Upload link is valid for 24 hours only.`
   );
+};
 
-// ─── Template 3: Citizen — Complaint Resolved ─────────────────────────────────
-/**
- * @param {string} phone     citizen phone
- * @param {string} ticketId  complaint ticket ID
- * @param {string} note      resolution note from officer
- */
+// ─── Template 3: Citizen — Complaint Resolved ────────────────────────────────
 const notifyCitizenComplaintResolved = (phone, ticketId, note) =>
   sendWhatsAppMessage(
     phone,

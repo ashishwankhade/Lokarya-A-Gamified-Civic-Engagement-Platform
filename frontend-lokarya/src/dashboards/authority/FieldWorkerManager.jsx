@@ -1,7 +1,7 @@
 // src/dashboards/authority/FieldWorkerManager.jsx — light theme
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, X, Loader2, Trash2, Phone, Briefcase, Users } from 'lucide-react';
+import { Plus, X, Loader2, Trash2, Phone, Briefcase, Users, AlertTriangle } from 'lucide-react';
 import api from '../../api/axios';
 
 const Field = ({ label, value, onChange, placeholder, type = 'text' }) => (
@@ -23,7 +23,6 @@ const Field = ({ label, value, onChange, placeholder, type = 'text' }) => (
   </div>
 );
 
-// Phone field with fixed +91 prefix — user types only the 10-digit number
 const PhoneField = ({ value, onChange }) => (
   <div style={{ marginBottom: 12 }}>
     <label style={{ color: '#64748b', fontSize: 11, fontWeight: 700, display: 'block', marginBottom: 4 }}>
@@ -44,7 +43,6 @@ const PhoneField = ({ value, onChange }) => (
         type="tel"
         value={value}
         onChange={e => {
-          // Only digits, max 10
           const val = e.target.value.replace(/\D/g, '').slice(0, 10);
           onChange(val);
         }}
@@ -59,16 +57,59 @@ const PhoneField = ({ value, onChange }) => (
   </div>
 );
 
+// ✅ NEW: Inline confirmation component — prevents accidental deletes
+const DeleteConfirm = ({ workerName, onConfirm, onCancel, loading }) => (
+  <motion.div
+    initial={{ opacity: 0, scale: 0.96 }}
+    animate={{ opacity: 1, scale: 1 }}
+    exit={{ opacity: 0, scale: 0.96 }}
+    style={{
+      position: 'absolute', inset: 0, borderRadius: 14, zIndex: 10,
+      background: 'rgba(255,255,255,0.97)', backdropFilter: 'blur(4px)',
+      display: 'flex', flexDirection: 'column', alignItems: 'center',
+      justifyContent: 'center', padding: 18, gap: 12,
+      border: '1px solid #fecaca',
+    }}
+  >
+    <div style={{ width: 36, height: 36, borderRadius: 999, background: '#fee2e2',
+      display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <AlertTriangle size={17} style={{ color: '#dc2626' }} />
+    </div>
+    <div style={{ textAlign: 'center' }}>
+      <p style={{ color: '#0f172a', fontWeight: 800, fontSize: 13, margin: 0 }}>Remove worker?</p>
+      <p style={{ color: '#64748b', fontSize: 11, marginTop: 3 }}>{workerName}</p>
+    </div>
+    <div style={{ display: 'flex', gap: 8, width: '100%' }}>
+      <button onClick={onCancel}
+        style={{ flex: 1, padding: '7px', borderRadius: 8, background: '#f1f5f9',
+          border: '1px solid #e2e8f0', color: '#64748b', fontSize: 12, fontWeight: 700,
+          cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}>
+        Cancel
+      </button>
+      <button onClick={onConfirm} disabled={loading}
+        style={{ flex: 1, padding: '7px', borderRadius: 8, background: '#dc2626',
+          border: 'none', color: '#fff', fontSize: 12, fontWeight: 700,
+          cursor: loading ? 'not-allowed' : 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+          fontFamily: "'DM Sans',sans-serif", opacity: loading ? 0.7 : 1 }}>
+        {loading ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+        Remove
+      </button>
+    </div>
+  </motion.div>
+);
+
 const EMPTY = { name: '', employeeId: '', phone: '', vibhag: '' };
 
 const FieldWorkerManager = () => {
-  const [workers,    setWorkers]    = useState([]);
-  const [loading,    setLoading]    = useState(true);
-  const [showForm,   setShowForm]   = useState(false);
-  const [form,       setForm]       = useState(EMPTY);
-  const [submitting, setSubmitting] = useState(false);
-  const [deleting,   setDeleting]   = useState(null);
-  const [error,      setError]      = useState('');
+  const [workers,      setWorkers]      = useState([]);
+  const [loading,      setLoading]      = useState(true);
+  const [showForm,     setShowForm]     = useState(false);
+  const [form,         setForm]         = useState(EMPTY);
+  const [submitting,   setSubmitting]   = useState(false);
+  const [deleting,     setDeleting]     = useState(null);     // id being deleted
+  const [confirmId,    setConfirmId]    = useState(null);     // ✅ id pending confirmation
+  const [error,        setError]        = useState('');
 
   const load = () => {
     setLoading(true);
@@ -87,26 +128,26 @@ const FieldWorkerManager = () => {
 
     setSubmitting(true);
     try {
-      // Send phone as +91XXXXXXXXXX — backend also normalizes, double-safe
-      await api.post('/field-workers', {
-        ...form,
-        phone: `+91${form.phone}`,
-      });
+      await api.post('/field-workers', { ...form, phone: `+91${form.phone}` });
       setForm(EMPTY);
       setShowForm(false);
       load();
     } catch (e) {
-      const msg = e?.response?.data?.message || 'Failed to create worker. Try again.';
-      setError(msg);
-    } finally {
-      setSubmitting(false);
-    }
+      setError(e?.response?.data?.message || 'Failed to create worker. Try again.');
+    } finally { setSubmitting(false); }
   };
 
-  const remove = async (id) => {
+  // ✅ FIX: two-step delete — first set confirmId, then actually delete
+  const requestDelete = (id) => setConfirmId(id);
+  const cancelDelete  = ()   => setConfirmId(null);
+
+  const confirmDelete = async (id) => {
     setDeleting(id);
-    try { await api.delete(`/field-workers/${id}`); load(); }
-    catch (e) { console.error(e); }
+    try {
+      await api.delete(`/field-workers/${id}`);
+      setConfirmId(null);
+      load();
+    } catch (e) { console.error(e); }
     finally { setDeleting(null); }
   };
 
@@ -185,7 +226,6 @@ const FieldWorkerManager = () => {
                 />
               </div>
 
-              {/* Error message */}
               {error && (
                 <p style={{
                   color: '#dc2626', fontSize: 12, fontWeight: 600,
@@ -245,10 +285,24 @@ const FieldWorkerManager = () => {
                 exit={{ opacity: 0, scale: 0.95 }}
                 transition={{ delay: i * 0.04 }}
                 style={{
+                  position: 'relative', // ✅ needed for confirm overlay
                   background: '#fff', borderRadius: 14, padding: 18,
                   border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                  overflow: 'hidden',
                 }}
               >
+                {/* ✅ Inline delete confirmation overlay */}
+                <AnimatePresence>
+                  {confirmId === w._id && (
+                    <DeleteConfirm
+                      workerName={w.name}
+                      onConfirm={() => confirmDelete(w._id)}
+                      onCancel={cancelDelete}
+                      loading={deleting === w._id}
+                    />
+                  )}
+                </AnimatePresence>
+
                 {/* Card Header */}
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 14 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -269,18 +323,15 @@ const FieldWorkerManager = () => {
                       </p>
                     </div>
                   </div>
+                  {/* ✅ FIX: now triggers confirmation instead of direct delete */}
                   <button
-                    onClick={() => remove(w._id)}
-                    disabled={deleting === w._id}
+                    onClick={() => requestDelete(w._id)}
                     title="Remove worker"
                     style={{ color: '#cbd5e1', cursor: 'pointer', background: 'none', border: 'none', padding: 4, borderRadius: 6 }}
                     onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
                     onMouseLeave={e => e.currentTarget.style.color = '#cbd5e1'}
                   >
-                    {deleting === w._id
-                      ? <Loader2 size={14} className="animate-spin" />
-                      : <Trash2 size={14} />
-                    }
+                    <Trash2 size={14} />
                   </button>
                 </div>
 

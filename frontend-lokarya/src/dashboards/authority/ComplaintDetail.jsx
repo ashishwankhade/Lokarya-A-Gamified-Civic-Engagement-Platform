@@ -1,12 +1,11 @@
 // src/dashboards/authority/ComplaintDetail.jsx
-//New version
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ArrowLeft, CheckCircle2, Clock, Flame, Loader2,
   Wrench, X, AlertTriangle, Star,
-  Image as ImageIcon, Camera, ShieldCheck,
+  Image as ImageIcon, Camera, ShieldCheck, UserCheck,
 } from 'lucide-react';
 import api            from '../../api/axios';
 import EnhancedMiniMap from './EnhancedMiniMap';
@@ -36,6 +35,20 @@ const Textarea = ({ label, value, onChange, placeholder }) => (
   </div>
 );
 
+const InputField = ({ label, value, onChange, placeholder }) => (
+  <div style={{ marginBottom: 12 }}>
+    <label style={{ color: '#64748b', fontSize: 11, fontWeight: 700,
+      display: 'block', marginBottom: 4 }}>{label}</label>
+    <input
+      value={value} onChange={e => onChange(e.target.value)}
+      placeholder={placeholder}
+      style={{ width: '100%', padding: '9px 12px', borderRadius: 9,
+        background: '#f8fafc', border: '1px solid #e2e8f0', color: '#0f172a',
+        fontSize: 13, outline: 'none',
+        fontFamily: "'DM Sans',sans-serif", boxSizing: 'border-box' }} />
+  </div>
+);
+
 const SubmitBtn = ({ label, onClick, loading, color = '#2563eb', disabled }) => (
   <button
     onClick={onClick} disabled={loading || disabled}
@@ -46,7 +59,7 @@ const SubmitBtn = ({ label, onClick, loading, color = '#2563eb', disabled }) => 
       border: 'none', cursor: disabled || loading ? 'not-allowed' : 'pointer',
       display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
       fontFamily: "'DM Sans',sans-serif", transition: 'opacity 0.15s' }}>
-    {loading && <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />}
+    {loading && <Loader2 size={13} className="animate-spin" />}
     {label}
   </button>
 );
@@ -85,28 +98,43 @@ const Modal = ({ title, onClose, children }) =>
     document.body
   );
 
-/* ─── Status / Timeline config ─────────────────────────────────────────────── */
+/* ─── Status / Timeline config — FIX: added worker_accepted everywhere ─────── */
 const STEP_ICON = {
   pending:          Clock,
   officer_assigned: CheckCircle2,
   worker_assigned:  Wrench,
+  worker_accepted:  Wrench,       // ✅ was missing
   in_progress:      Wrench,
   resolved:         CheckCircle2,
   closed:           CheckCircle2,
   escalated:        AlertTriangle,
 };
 const STEP_COLOR = {
-  pending: '#d97706', officer_assigned: '#0369a1', worker_assigned: '#7c3aed',
-  in_progress: '#2563eb', resolved: '#059669', closed: '#64748b', escalated: '#dc2626',
+  pending:          '#d97706',
+  officer_assigned: '#0369a1',
+  worker_assigned:  '#7c3aed',
+  worker_accepted:  '#0284c7',    // ✅ was missing
+  in_progress:      '#2563eb',
+  resolved:         '#059669',
+  closed:           '#64748b',
+  escalated:        '#dc2626',
 };
 const STEP_BG = {
-  pending: '#fef3c7', officer_assigned: '#e0f2fe', worker_assigned: '#ede9fe',
-  in_progress: '#dbeafe', resolved: '#d1fae5', closed: '#f1f5f9', escalated: '#fee2e2',
+  pending:          '#fef3c7',
+  officer_assigned: '#e0f2fe',
+  worker_assigned:  '#ede9fe',
+  worker_accepted:  '#e0f2fe',    // ✅ was missing
+  in_progress:      '#dbeafe',
+  resolved:         '#d1fae5',
+  closed:           '#f1f5f9',
+  escalated:        '#fee2e2',
 };
+// ✅ Single source of truth — STATUS_META also has worker_accepted
 const STATUS_META = {
   pending:          { color: '#d97706', bg: '#fef3c7', border: '#fde68a' },
   officer_assigned: { color: '#0369a1', bg: '#e0f2fe', border: '#bae6fd' },
   worker_assigned:  { color: '#7c3aed', bg: '#ede9fe', border: '#ddd6fe' },
+  worker_accepted:  { color: '#0284c7', bg: '#e0f2fe', border: '#bae6fd' }, // ✅ was missing
   in_progress:      { color: '#2563eb', bg: '#dbeafe', border: '#bfdbfe' },
   resolved:         { color: '#059669', bg: '#d1fae5', border: '#a7f3d0' },
   closed:           { color: '#64748b', bg: '#f1f5f9', border: '#e2e8f0' },
@@ -161,17 +189,31 @@ const InfoTile = ({ label, value }) => (
   </div>
 );
 
+/* ─── ErrorBanner ───────────────────────────────────────────────────────────── */
+const ErrorBanner = ({ msg }) => msg ? (
+  <div style={{ padding: '9px 14px', borderRadius: 9, background: '#fef2f2',
+    border: '1px solid #fecaca', color: '#dc2626', fontSize: 12, fontWeight: 600, marginBottom: 12 }}>
+    {msg}
+  </div>
+) : null;
+
 /* ══════════════════════════════════════════════════════════════════════════════
    MAIN COMPONENT
 ══════════════════════════════════════════════════════════════════════════════ */
 const ComplaintDetail = ({ complaintId, onBack }) => {
   const [c,           setC]           = useState(null);
   const [loading,     setLoading]     = useState(true);
-  const [modal,       setModal]       = useState(null); // 'worker' | 'resolve'
+  const [modal,       setModal]       = useState(null); // 'officer' | 'worker' | 'resolve'
   const [workers,     setWorkers]     = useState([]);
   const [selWorker,   setSelWorker]   = useState('');
   const [resolveNote, setResolveNote] = useState('');
   const [submitting,  setSubmitting]  = useState(false);
+  const [error,       setError]       = useState('');
+
+  // Officer form state
+  const [officerName,        setOfficerName]        = useState('');
+  const [officerDesignation, setOfficerDesignation] = useState('');
+  const [officerContact,     setOfficerContact]     = useState('');
 
   const load = () => {
     setLoading(true);
@@ -182,8 +224,37 @@ const ComplaintDetail = ({ complaintId, onBack }) => {
   };
   useEffect(() => { load(); }, [complaintId]);
 
+  /* ── open officer modal ── */
+  const openOfficerModal = () => {
+    // Pre-fill if already assigned
+    setOfficerName(c?.assignedOfficer?.name || '');
+    setOfficerDesignation(c?.assignedOfficer?.designation || '');
+    setOfficerContact(c?.assignedOfficer?.contact || '');
+    setError('');
+    setModal('officer');
+  };
+
+  /* ── assign officer ── */
+  const assignOfficer = async () => {
+    if (!officerName.trim()) { setError('Officer name is required.'); return; }
+    setSubmitting(true);
+    setError('');
+    try {
+      await api.patch(`/complaints/${complaintId}/assign-officer`, {
+        officerName:        officerName.trim(),
+        officerDesignation: officerDesignation.trim() || 'Ward Officer',
+        officerContact:     officerContact.trim(),
+      });
+      setModal(null);
+      load();
+    } catch (e) {
+      setError(e?.response?.data?.message || 'Failed to assign officer.');
+    } finally { setSubmitting(false); }
+  };
+
   /* ── open worker modal + fetch workers ── */
   const openWorkerModal = () => {
+    setError('');
     api.get('/field-workers')
       .then(({ data }) => setWorkers(data))
       .catch(() => setWorkers([]));
@@ -191,35 +262,41 @@ const ComplaintDetail = ({ complaintId, onBack }) => {
     setModal('worker');
   };
 
-  /* ── assign worker directly (works from pending, under_review, officer_assigned) ── */
+  /* ── assign worker ── */
   const assignWorker = async () => {
     if (!selWorker) return;
     setSubmitting(true);
+    setError('');
     try {
       await api.patch(`/complaints/${complaintId}/assign-worker`, { workerId: selWorker });
       setModal(null);
       load();
-    } catch (e) { console.error(e); }
-    finally { setSubmitting(false); }
+    } catch (e) {
+      setError(e?.response?.data?.message || 'Failed to assign worker.');
+    } finally { setSubmitting(false); }
   };
 
   /* ── resolve ── */
   const resolve = async () => {
     setSubmitting(true);
+    setError('');
     try {
       await api.patch(`/complaints/${complaintId}/resolve`, { resolutionNote: resolveNote });
       setModal(null);
       load();
-    } catch (e) { console.error(e); }
-    finally { setSubmitting(false); }
+    } catch (e) {
+      setError(e?.response?.data?.message || 'Failed to resolve complaint.');
+    } finally { setSubmitting(false); }
   };
+
+  /* ── close modal helper ── */
+  const closeModal = () => { setModal(null); setError(''); };
 
   /* ── loading / not found states ── */
   if (loading) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center',
       height: 300, gap: 10, color: '#94a3b8', fontFamily: "'DM Sans',sans-serif" }}>
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-      <Loader2 size={20} style={{ color: '#2563eb', animation: 'spin 1s linear infinite' }} />
+      <Loader2 size={20} className="animate-spin" style={{ color: '#2563eb' }} />
       <span>Loading complaint…</span>
     </div>
   );
@@ -238,16 +315,18 @@ const ComplaintDetail = ({ complaintId, onBack }) => {
   /* ── derived state ── */
   const sm = STATUS_META[c.status] || STATUS_META.pending;
 
-  // ✅ Direct worker assignment — works from pending, under_review, officer_assigned
-  const canAssignWorker = ['pending', 'under_review', 'officer_assigned'].includes(c.status);
-  const canResolve      = ['worker_accepted', 'in_progress', 'worker_assigned'].includes(c.status);
+  // ✅ Officer can be assigned/reassigned at pending, under_review states
+  const canAssignOfficer = ['pending', 'under_review'].includes(c.status);
+  // ✅ Worker can be assigned from pending, under_review, or after officer is assigned
+  const canAssignWorker  = ['pending', 'under_review', 'officer_assigned'].includes(c.status);
+  // ✅ Resolve allowed once worker has accepted or is in progress
+  const canResolve       = ['worker_accepted', 'in_progress', 'worker_assigned'].includes(c.status);
 
   const citizenPhoto    = imgUrl(c.image);
   const resolutionPhoto = imgUrl(c.resolutionImage);
 
   return (
     <div style={{ fontFamily: "'DM Sans',sans-serif", maxWidth: 940 }}>
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
 
       {/* ── Back button ── */}
       <button onClick={onBack}
@@ -405,6 +484,57 @@ const ComplaintDetail = ({ complaintId, onBack }) => {
         {/* ════════════════ RIGHT COLUMN ════════════════ */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
 
+          {/* ✅ Ward Officer card — assign or show assigned */}
+          <div style={{ background: '#fff', borderRadius: 14, padding: 18,
+            border: '1px solid #e2e8f0', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
+            <p style={{ color: '#94a3b8', fontSize: 10, fontWeight: 700, marginBottom: 12,
+              textTransform: 'uppercase', letterSpacing: '0.07em' }}>Ward Officer</p>
+
+            {c.assignedOfficer?.name ? (
+              <div style={{ marginBottom: canAssignOfficer ? 12 : 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: 999, flexShrink: 0,
+                    background: 'linear-gradient(135deg,#3b82f6,#1d4ed8)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    color: '#fff', fontWeight: 800, fontSize: 15 }}>
+                    {c.assignedOfficer.name[0].toUpperCase()}
+                  </div>
+                  <div>
+                    <p style={{ color: '#0f172a', fontWeight: 700, fontSize: 13, margin: 0 }}>
+                      {c.assignedOfficer.name}
+                    </p>
+                    <p style={{ color: '#64748b', fontSize: 11, margin: 0 }}>
+                      {c.assignedOfficer.designation || 'Ward Officer'}
+                    </p>
+                    {c.assignedOfficer.contact && (
+                      <p style={{ color: '#94a3b8', fontSize: 11, margin: 0,
+                        fontFamily: "'JetBrains Mono',monospace" }}>
+                        {c.assignedOfficer.contact}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p style={{ color: '#94a3b8', fontSize: 12, marginBottom: 12 }}>
+                Not yet assigned
+              </p>
+            )}
+
+            {/* ✅ Officer assign button — only at pending / under_review */}
+            {canAssignOfficer && (
+              <button onClick={openOfficerModal}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6,
+                  padding: '7px 12px', borderRadius: 8,
+                  background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1d4ed8',
+                  fontSize: 12, fontWeight: 800, cursor: 'pointer',
+                  fontFamily: "'DM Sans',sans-serif", marginTop: c.assignedOfficer?.name ? 8 : 0 }}>
+                <UserCheck size={13} />
+                {c.assignedOfficer?.name ? 'Reassign Officer' : 'Assign Officer'}
+              </button>
+            )}
+          </div>
+
           {/* ✅ Field Worker card — primary assignment card */}
           <div style={{ background: '#fff', borderRadius: 14, padding: 18,
             border: '1px solid #e2e8f0', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
@@ -441,7 +571,6 @@ const ComplaintDetail = ({ complaintId, onBack }) => {
               </p>
             )}
 
-            {/* ✅ Show assign/reassign button whenever status allows */}
             {canAssignWorker && (
               <button onClick={openWorkerModal}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6,
@@ -455,40 +584,9 @@ const ComplaintDetail = ({ complaintId, onBack }) => {
             )}
           </div>
 
-          {/* ✅ Ward Officer card — read-only, shown only if one was previously assigned */}
-          {c.assignedOfficer?.name && (
-            <div style={{ background: '#fff', borderRadius: 14, padding: 18,
-              border: '1px solid #e2e8f0', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
-              <p style={{ color: '#94a3b8', fontSize: 10, fontWeight: 700, marginBottom: 12,
-                textTransform: 'uppercase', letterSpacing: '0.07em' }}>Ward Officer</p>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div style={{ width: 36, height: 36, borderRadius: 999, flexShrink: 0,
-                  background: 'linear-gradient(135deg,#3b82f6,#1d4ed8)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  color: '#fff', fontWeight: 800, fontSize: 15 }}>
-                  {c.assignedOfficer.name[0].toUpperCase()}
-                </div>
-                <div>
-                  <p style={{ color: '#0f172a', fontWeight: 700, fontSize: 13, margin: 0 }}>
-                    {c.assignedOfficer.name}
-                  </p>
-                  <p style={{ color: '#64748b', fontSize: 11, margin: 0 }}>
-                    {c.assignedOfficer.designation || 'Ward Officer'}
-                  </p>
-                  {c.assignedOfficer.contact && (
-                    <p style={{ color: '#94a3b8', fontSize: 11, margin: 0,
-                      fontFamily: "'JetBrains Mono',monospace" }}>
-                      {c.assignedOfficer.contact}
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
           {/* Resolve button */}
           {canResolve && (
-            <button onClick={() => setModal('resolve')}
+            <button onClick={() => { setError(''); setModal('resolve'); }}
               style={{ display: 'flex', alignItems: 'center', justifyContent: 'center',
                 gap: 8, padding: '11px', borderRadius: 12,
                 background: '#059669', color: '#fff', fontSize: 13, fontWeight: 800,
@@ -540,17 +638,53 @@ const ComplaintDetail = ({ complaintId, onBack }) => {
       {/* ══════════════ MODALS ══════════════ */}
       <AnimatePresence>
 
-        {/* ✅ Worker modal — now the only assignment modal */}
+        {/* ✅ Officer assignment modal — was completely missing */}
+        {modal === 'officer' && (
+          <Modal title="Assign Ward Officer" onClose={closeModal}>
+            <p style={{ color: '#64748b', fontSize: 12, marginBottom: 14, lineHeight: 1.6 }}>
+              Assign a Ward Officer to oversee this complaint. They will be notified.
+            </p>
+            <ErrorBanner msg={error} />
+            <InputField
+              label="Officer Name *"
+              value={officerName}
+              onChange={setOfficerName}
+              placeholder="e.g. Rajesh Kumar"
+            />
+            <InputField
+              label="Designation"
+              value={officerDesignation}
+              onChange={setOfficerDesignation}
+              placeholder="Ward Officer"
+            />
+            <InputField
+              label="Contact Number"
+              value={officerContact}
+              onChange={setOfficerContact}
+              placeholder="+91XXXXXXXXXX"
+            />
+            <SubmitBtn
+              label="Assign Officer"
+              onClick={assignOfficer}
+              loading={submitting}
+              disabled={!officerName.trim()}
+              color="#2563eb"
+            />
+          </Modal>
+        )}
+
+        {/* Worker modal */}
         {modal === 'worker' && (
-          <Modal title="Assign Field Worker" onClose={() => setModal(null)}>
+          <Modal title="Assign Field Worker" onClose={closeModal}>
             <p style={{ color: '#64748b', fontSize: 12, marginBottom: 14, lineHeight: 1.6 }}>
               Select a field worker to assign directly. A WhatsApp notification will be sent.
             </p>
+            <ErrorBanner msg={error} />
             <div style={{ maxHeight: 260, overflowY: 'auto', marginBottom: 14,
               display: 'flex', flexDirection: 'column', gap: 8 }}>
               {workers.length === 0 ? (
                 <p style={{ color: '#94a3b8', fontSize: 13, textAlign: 'center', padding: '20px 0' }}>
-                  No field workers found.
+                  No field workers found. Add workers in the Field Workers tab.
                 </p>
               ) : workers.map(w => (
                 <button key={w._id} onClick={() => setSelWorker(w._id)}
@@ -597,12 +731,13 @@ const ComplaintDetail = ({ complaintId, onBack }) => {
 
         {/* Resolve modal */}
         {modal === 'resolve' && (
-          <Modal title="Mark as Resolved" onClose={() => setModal(null)}>
+          <Modal title="Mark as Resolved" onClose={closeModal}>
             <div style={{ marginBottom: 14, padding: '10px 14px', borderRadius: 9,
               background: '#ecfdf5', border: '1px solid #a7f3d0',
               color: '#047857', fontSize: 12, fontWeight: 700 }}>
-              Citizen will receive an SMS to rate the resolution.
+              Citizen will receive a notification to rate the resolution.
             </div>
+            <ErrorBanner msg={error} />
             <Textarea
               label="Resolution Note (optional)"
               value={resolveNote}

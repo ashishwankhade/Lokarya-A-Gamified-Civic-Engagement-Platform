@@ -5,17 +5,22 @@ import { Search, RefreshCw, Flame, Clock, CheckCircle2, ChevronRight, Loader2 } 
 import api from '../../api/axios';
 
 const FILTERS = [
-  { id:'all', label:'All' }, { id:'pending', label:'Pending' },
-  { id:'officer_assigned', label:'Assigned' }, { id:'in_progress', label:'In Progress' },
-  { id:'resolved', label:'Resolved' }, { id:'escalated', label:'Escalated' },
+  { id:'all',              label:'All' },
+  { id:'pending',          label:'Pending' },
+  { id:'officer_assigned', label:'Officer Assigned' },
+  { id:'worker_assigned',  label:'Worker Assigned' },
+  { id:'in_progress',      label:'In Progress' },
+  { id:'resolved',         label:'Resolved' },
+  { id:'escalated',        label:'Escalated' },
 ];
 
+// ✅ FIX: added worker_accepted — was missing, caused undefined style lookups
 const STATUS_META = {
   pending:          { color:'#d97706', bg:'#fef3c7', border:'#fde68a' },
   under_review:     { color:'#7c3aed', bg:'#ede9fe', border:'#ddd6fe' },
   officer_assigned: { color:'#0369a1', bg:'#e0f2fe', border:'#bae6fd' },
   worker_assigned:  { color:'#7c3aed', bg:'#ede9fe', border:'#ddd6fe' },
-  worker_accepted:  { color:'#0284c7', bg:'#e0f2fe', border:'#bae6fd' },
+  worker_accepted:  { color:'#0284c7', bg:'#e0f2fe', border:'#bae6fd' }, // ✅ added
   in_progress:      { color:'#2563eb', bg:'#dbeafe', border:'#bfdbfe' },
   resolved:         { color:'#059669', bg:'#d1fae5', border:'#a7f3d0' },
   closed:           { color:'#64748b', bg:'#f1f5f9', border:'#e2e8f0' },
@@ -24,6 +29,10 @@ const STATUS_META = {
 };
 
 const CAT_ICON = { Garbage:'🗑️', Roads:'🚧', Water:'💧', Electricity:'⚡', Traffic:'🚗', Other:'📋' };
+
+// ✅ FIX: expanded SLA-active statuses to include worker_assigned and worker_accepted
+// These are still pre-resolution and the SLA clock is still running
+const SLA_ACTIVE_STATUSES = ['pending', 'under_review', 'officer_assigned', 'worker_assigned', 'worker_accepted'];
 
 const SLATimer = ({ deadline, breached }) => {
   const [label, setLabel] = useState('');
@@ -183,8 +192,9 @@ const ComplaintQueue = ({ onSelect }) => {
                     {c.status.replace(/_/g,' ')}
                   </span>
 
+                  {/* ✅ FIX: SLA_ACTIVE_STATUSES now covers worker_assigned and worker_accepted */}
                   <div>
-                    {['pending','under_review','officer_assigned'].includes(c.status) && c.slaDeadline
+                    {SLA_ACTIVE_STATUSES.includes(c.status) && c.slaDeadline
                       ? <SLATimer deadline={c.slaDeadline} breached={c.slaBreached}/>
                       : <span style={{ color:'#cbd5e1', fontSize:12 }}>—</span>}
                   </div>

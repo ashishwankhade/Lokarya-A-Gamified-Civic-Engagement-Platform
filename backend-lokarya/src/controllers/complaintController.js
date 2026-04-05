@@ -154,7 +154,7 @@ const assignWorker = asyncHandler(async (req, res) => {
   worker.activeComplaints.push(complaint._id);
   await worker.save();
 
-  await notifyWorkerAssigned(worker.phone, complaint, magicLink);
+  await notifyWorkerAssigned(worker.phone, complaint, magicLink, token);
 
   await sendNotification(
     complaint.user,
@@ -163,30 +163,62 @@ const assignWorker = asyncHandler(async (req, res) => {
     complaint._id
   );
 
-  res.json({ message: 'Worker assigned and WhatsApp sent.', complaint });
+  res.json({ message: 'Worker assigned and details sent to the worker.', complaint });
 });
 
 // ─── STEP 6: Worker webhook (WhatsApp reply "1" = task accepted) ──────────────
-const workerWebhook = asyncHandler(async (req, res) => {
-  const { From, Body } = req.body;
-  const phone   = From?.replace('whatsapp:', '').trim();
-  const message = Body?.trim();
+// const workerWebhook = asyncHandler(async (req, res) => {
+//   const { From, Body } = req.body;
+//   const phone   = From?.replace('whatsapp:', '').trim();
+//   const message = Body?.trim();
 
-  if (message !== '1') return res.status(200).send('OK');
+//   if (message !== '1') return res.status(200).send('OK');
 
-  const complaint = await Complaint.findOne({ workerPhone: phone, status: 'worker_assigned' });
-  if (!complaint) return res.status(200).send('OK');
+//   const complaint = await Complaint.findOne({ workerPhone: phone, status: 'worker_assigned' });
+//   if (!complaint) return res.status(200).send('OK');
+
+//   complaint.status = 'in_progress';
+//   complaint.timeline.push({
+//     status:  'worker_accepted',
+//     message: 'Field worker accepted the task.',
+//   });
+//   await complaint.save();
+
+//   if (complaint.user) {
+//     const worker = await FieldWorker.findById(complaint.assignedWorker);
+
+//     await sendNotification(
+//       complaint.user,
+//       `Field worker ${worker?.name || 'Field staff'} is on the way for ${complaint.ticketId}.`,
+//       'info',
+//       complaint._id
+//     );
+//   }
+
+//   res.status(200).send('OK');
+// });
+
+// ─── STEP 5 (new): Worker accepts task via magic link page ────────────────────
+const workerAcceptTask = asyncHandler(async (req, res) => {
+  const { token } = req.query; // passed from the magic link URL
+
+  const complaint = await Complaint.findOne({ magicToken: token });
+  if (!complaint || !complaint.isMagicTokenValid(token)) {
+    res.status(400); throw new Error('Invalid or expired link.');
+  }
+  if (complaint.status !== 'worker_assigned') {
+    res.status(400); throw new Error(`Cannot accept at status: ${complaint.status}`);
+  }
 
   complaint.status = 'in_progress';
   complaint.timeline.push({
-    status:  'worker_accepted',
-    message: 'Field worker accepted the task.',
+    status:  'in_progress',
+    message: 'Field worker accepted the task via magic link.',
   });
   await complaint.save();
 
   if (complaint.user) {
     const worker = await FieldWorker.findById(complaint.assignedWorker);
-
     await sendNotification(
       complaint.user,
       `Field worker ${worker?.name || 'Field staff'} is on the way for ${complaint.ticketId}.`,
@@ -195,7 +227,7 @@ const workerWebhook = asyncHandler(async (req, res) => {
     );
   }
 
-  res.status(200).send('OK');
+  res.status(200).json({ message: 'Task accepted. You can now upload the proof photo.' });
 });
 
 // ─── STEP 7: Magic upload (worker uploads resolution photo via link) ───────────
@@ -413,7 +445,7 @@ export {
   createComplaint,
   assignOfficer,
   assignWorker,
-  workerWebhook,
+  workerAcceptTask,
   magicUpload,
   resolveComplaint,
   rateComplaint,

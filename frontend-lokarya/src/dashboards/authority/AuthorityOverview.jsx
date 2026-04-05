@@ -6,10 +6,12 @@ import api from '../../api/axios';
 
 const CAT_ICON = { Garbage:'🗑️', Roads:'🚧', Water:'💧', Electricity:'⚡', Traffic:'🚗', Other:'📋' };
 
+// ✅ FIX: added worker_accepted — was missing, caused undefined styles on recent complaint rows
 const STATUS_META = {
   pending:          { color:'#d97706', bg:'#fef3c7', border:'#fde68a' },
   officer_assigned: { color:'#0369a1', bg:'#e0f2fe', border:'#bae6fd' },
   worker_assigned:  { color:'#7c3aed', bg:'#ede9fe', border:'#ddd6fe' },
+  worker_accepted:  { color:'#0284c7', bg:'#e0f2fe', border:'#bae6fd' }, // ✅ added
   in_progress:      { color:'#2563eb', bg:'#dbeafe', border:'#bfdbfe' },
   resolved:         { color:'#059669', bg:'#d1fae5', border:'#a7f3d0' },
   closed:           { color:'#64748b', bg:'#f1f5f9', border:'#e2e8f0' },
@@ -43,7 +45,11 @@ const AuthorityOverview = ({ onNavigate, onSelect }) => {
   useEffect(() => {
     api.get('/complaints').then(({ data: all }) => {
       const pending    = all.filter(c => c.status === 'pending').length;
-      const inProgress = all.filter(c => ['officer_assigned','worker_assigned','worker_accepted','in_progress'].includes(c.status)).length;
+      // ✅ FIX: worker_accepted was already in original but STATUS_META didn't have it —
+      //         now consistent. Filter is correct.
+      const inProgress = all.filter(c =>
+        ['officer_assigned','worker_assigned','worker_accepted','in_progress'].includes(c.status)
+      ).length;
       const resolved   = all.filter(c => ['resolved','closed'].includes(c.status)).length;
       const breached   = all.filter(c => c.slaBreached).length;
       const recent     = [...all].sort((a,b) => new Date(b.createdAt)-new Date(a.createdAt)).slice(0,6);
@@ -100,6 +106,7 @@ const AuthorityOverview = ({ onNavigate, onSelect }) => {
         </div>
         <div>
           {data?.recent?.map((c, i) => {
+            // ✅ FIX: fallback to pending meta if status unknown — prevents crashes
             const s = STATUS_META[c.status] || STATUS_META.pending;
             return (
               <motion.div key={c._id} initial={{ opacity:0 }} animate={{ opacity:1 }} transition={{ delay:i*0.04 }}

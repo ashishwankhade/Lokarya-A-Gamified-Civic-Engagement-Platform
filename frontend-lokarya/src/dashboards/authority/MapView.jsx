@@ -8,6 +8,7 @@ import api from '../../api/axios';
 
 const STATUS_COLOR = {
   pending:'#f59e0b', officer_assigned:'#0369a1', worker_assigned:'#7c3aed',
+  worker_accepted:'#0284c7', // ✅ added for consistency
   in_progress:'#2563eb', resolved:'#059669', closed:'#64748b', escalated:'#dc2626',
 };
 
@@ -88,11 +89,14 @@ const MapView = ({ onSelect }) => {
     return c.status === filter;
   });
 
+  // ✅ FIX: legend "Escalated/Breach" count now matches what's actually shown red on the map.
+  // On the map, a marker is red if slaBreached OR status === 'escalated'.
+  // Previously the count only used status === 'escalated', making the legend misleading.
   const counts = {
-    pending:  complaints.filter(c=>c.status==='pending').length,
-    active:   complaints.filter(c=>['officer_assigned','worker_assigned','in_progress'].includes(c.status)).length,
-    resolved: complaints.filter(c=>['resolved','closed'].includes(c.status)).length,
-    escalated:complaints.filter(c=>c.status==='escalated').length,
+    pending:        complaints.filter(c=>c.status==='pending').length,
+    active:         complaints.filter(c=>['officer_assigned','worker_assigned','worker_accepted','in_progress'].includes(c.status)).length,
+    resolved:       complaints.filter(c=>['resolved','closed'].includes(c.status)).length,
+    escalatedOrSla: complaints.filter(c=>c.status==='escalated' || c.slaBreached).length,
   };
 
   if (loading) return (
@@ -130,14 +134,14 @@ const MapView = ({ onSelect }) => {
       {/* Map */}
       <div style={{ position:'relative', borderRadius:14, overflow:'hidden', border:'1px solid #e2e8f0', boxShadow:'0 1px 4px rgba(0,0,0,0.06)' }}>
         <MapContainer center={NAGPUR} zoom={12} style={{ height:520, width:'100%' }} zoomControl>
-          {/* Light tile — OpenStreetMap via Carto Positron, no API key */}
           <TileLayer
             attribution='&copy; <a href="https://carto.com">CARTO</a>'
             url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
           />
           <FitBounds complaints={filtered}/>
           {filtered.map(c => {
-            const color  = c.slaBreached ? '#dc2626' : STATUS_COLOR[c.status] || '#f59e0b';
+            // ✅ slaBreached marker is always red — consistent with legend
+            const color  = c.slaBreached ? '#dc2626' : (STATUS_COLOR[c.status] || '#f59e0b');
             return (
               <CircleMarker key={c._id} center={[c.location.lat, c.location.lng]}
                 radius={c.slaBreached ? 11 : 9}
@@ -155,7 +159,7 @@ const MapView = ({ onSelect }) => {
               style={{ position:'absolute', top:12, right:12, zIndex:999,
                 background:'rgba(255,255,255,0.96)', backdropFilter:'blur(8px)',
                 border:'1px solid #e2e8f0', borderRadius:12, padding:'12px 14px',
-                boxShadow:'0 4px 16px rgba(0,0,0,0.08)', minWidth:150 }}>
+                boxShadow:'0 4px 16px rgba(0,0,0,0.08)', minWidth:160 }}>
               <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
                 <span style={{ color:'#94a3b8', fontSize:10, fontWeight:800, letterSpacing:'0.07em' }}>LEGEND</span>
                 <button onClick={() => setShowLegend(false)} style={{ color:'#94a3b8', cursor:'pointer', background:'none', border:'none', padding:0 }}>
@@ -163,10 +167,11 @@ const MapView = ({ onSelect }) => {
                 </button>
               </div>
               {[
-                { color:'#f59e0b', label:'Pending',        count:counts.pending },
-                { color:'#2563eb', label:'Active',         count:counts.active },
-                { color:'#059669', label:'Resolved',       count:counts.resolved },
-                { color:'#dc2626', label:'Escalated/Breach',count:counts.escalated },
+                { color:'#f59e0b', label:'Pending',              count: counts.pending },
+                { color:'#2563eb', label:'Active',               count: counts.active },
+                { color:'#059669', label:'Resolved',             count: counts.resolved },
+                // ✅ FIX: count now matches red markers (escalated OR slaBreached)
+                { color:'#dc2626', label:'Escalated / SLA Breach', count: counts.escalatedOrSla },
               ].map((l,i) => (
                 <div key={i} style={{ display:'flex', alignItems:'center', gap:7, marginBottom:i<3?6:0 }}>
                   <div style={{ width:10, height:10, borderRadius:999, background:l.color, flexShrink:0 }}/>

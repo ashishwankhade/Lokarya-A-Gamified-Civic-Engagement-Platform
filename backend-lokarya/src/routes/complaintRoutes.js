@@ -4,7 +4,7 @@ import {
   createComplaint,
   assignOfficer,
   assignWorker,
-  workerWebhook,
+  workerAcceptTask,
   magicUpload,
   resolveComplaint,
   rateComplaint,
@@ -19,7 +19,8 @@ import upload  from '../middlewares/uploadMiddleware.js';
 const router = express.Router();
 
 // ── Public ────────────────────────────────────────────────────────────────────
-router.post('/worker-webhook',              workerWebhook);
+// router.post('/worker-webhook',              workerWebhook);
+router.post('/:id/accept', workerAcceptTask); // worker hits this from the magic link page
 router.post('/magic-upload', upload.single('photo'), magicUpload);
 
 // ── Citizen ───────────────────────────────────────────────────────────────────

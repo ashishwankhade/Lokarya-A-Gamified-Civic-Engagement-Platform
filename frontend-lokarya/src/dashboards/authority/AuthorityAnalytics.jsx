@@ -6,7 +6,22 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pi
 import api from '../../api/axios';
 
 const CAT_COLORS  = { Garbage:'#f59e0b', Roads:'#ef4444', Water:'#38bdf8', Electricity:'#fbbf24', Traffic:'#a78bfa', Other:'#94a3b8' };
-const STAT_COLORS = { pending:'#f59e0b', in_progress:'#3b82f6', resolved:'#10b981', escalated:'#ef4444', closed:'#94a3b8' };
+
+// ✅ FIX: added all intermediate statuses — previously worker_assigned, worker_accepted,
+//         officer_assigned all fell into undefined and were silently dropped from the pie chart
+const STAT_COLORS = {
+  pending:          '#f59e0b',
+  officer_assigned: '#0369a1',
+  worker_assigned:  '#7c3aed',
+  worker_accepted:  '#0284c7', // ✅ added
+  in_progress:      '#3b82f6',
+  resolved:         '#10b981',
+  closed:           '#94a3b8',
+  escalated:        '#ef4444',
+};
+
+// ✅ All statuses that should appear in the pie chart
+const KNOWN_STATUSES = Object.keys(STAT_COLORS);
 
 const KPICard = ({ label, value, color, bg, icon:Icon, delay }) => (
   <motion.div initial={{ opacity:0, y:14 }} animate={{ opacity:1, y:0 }} transition={{ delay }}
@@ -44,13 +59,25 @@ const AuthorityAnalytics = () => {
 
   useEffect(() => {
     api.get('/complaints').then(({ data: all }) => {
+      // By category
       const catMap = {};
       all.forEach(c => { catMap[c.category] = (catMap[c.category]||0)+1; });
       const byCategory = Object.entries(catMap).map(([name,count]) => ({ name, count, fill:CAT_COLORS[name]||'#94a3b8' }));
 
+      // ✅ FIX: use KNOWN_STATUSES so all statuses are bucketed correctly.
+      // Unknown statuses are grouped as 'other' with a neutral color.
       const statMap = {};
-      all.forEach(c => { const s = ['pending','in_progress','resolved','closed','escalated'].includes(c.status)?c.status:'other'; statMap[s]=(statMap[s]||0)+1; });
-      const byStatus = Object.entries(statMap).map(([name,value]) => ({ name, value, fill:STAT_COLORS[name]||'#94a3b8' }));
+      all.forEach(c => {
+        const s = KNOWN_STATUSES.includes(c.status) ? c.status : 'other';
+        statMap[s] = (statMap[s]||0) + 1;
+      });
+      const byStatus = Object.entries(statMap)
+        .filter(([, value]) => value > 0)
+        .map(([name,value]) => ({
+          name: name.replace(/_/g,' '),
+          value,
+          fill: STAT_COLORS[name] || '#94a3b8',
+        }));
 
       const total    = all.length;
       const resolved = all.filter(c=>['resolved','closed'].includes(c.status)).length;
@@ -124,6 +151,7 @@ const AuthorityAnalytics = () => {
           </ResponsiveContainer>
         </ChartCard>
 
+        {/* ✅ FIX: pie chart now shows all statuses properly, no silent data loss */}
         <ChartCard title="Status Breakdown">
           <ResponsiveContainer width="100%" height={200}>
             <PieChart>

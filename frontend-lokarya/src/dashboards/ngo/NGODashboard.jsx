@@ -4,13 +4,17 @@
  * Pages: overview · missions · create · attendance · analytics
  *
  * Path: src/dashboards/ngo/NGODashboard.jsx
+ *
+ * FIXES applied:
+ *  [1] Auth race condition — role check now guards on isLoggedIn AND user loaded
+ *  [2] attendMissionId reset — cleared when navigating to Attendance via sidebar
  */
 
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, ListChecks, PlusCircle,
-  QrCode, BarChart3, ChevronRight,
+  QrCode, BarChart3,
 } from 'lucide-react';
 
 import DashboardLayout from '../../layouts/DashboardLayout';
@@ -25,11 +29,11 @@ import NGOAnalytics    from './NGOAnalytics';
 
 /* ── nav items ──────────────────────────────────────────────────────────── */
 const NAV_ITEMS = [
-  { id: 'overview',    label: 'Overview',        icon: LayoutDashboard },
-  { id: 'missions',    label: 'My Missions',      icon: ListChecks      },
-  { id: 'create',      label: 'Create Mission',   icon: PlusCircle      },
-  { id: 'attendance',  label: 'Attendance & QR',  icon: QrCode          },
-  { id: 'analytics',   label: 'Analytics',        icon: BarChart3       },
+  { id: 'overview',   label: 'Overview',       icon: LayoutDashboard },
+  { id: 'missions',   label: 'My Missions',     icon: ListChecks      },
+  { id: 'create',     label: 'Create Mission',  icon: PlusCircle      },
+  { id: 'attendance', label: 'Attendance & QR', icon: QrCode          },
+  { id: 'analytics',  label: 'Analytics',       icon: BarChart3       },
 ];
 
 const PAGE_META = {
@@ -42,19 +46,25 @@ const PAGE_META = {
 
 /* ── component ──────────────────────────────────────────────────────────── */
 const NGODashboard = () => {
-  const navigate               = useNavigate();
-  const { user, isLoggedIn }   = useAuth();
+  const navigate             = useNavigate();
+  const { user, isLoggedIn } = useAuth();
 
   const [activePage,      setActivePage]      = useState('overview');
   const [pendingCount,    setPendingCount]     = useState(0);
-  const [editMissionId,   setEditMissionId]    = useState(null);   // passed to CreateMission for edit mode
-  const [attendMissionId, setAttendMissionId]  = useState(null);   // passed to AttendancePanel
+  const [editMissionId,   setEditMissionId]    = useState(null);
+  const [attendMissionId, setAttendMissionId]  = useState(null);
 
-  /* redirect if not NGO */
+  /* ── FIX [1]: guard with isLoggedIn AND user fully loaded ───────────── */
   useEffect(() => {
-    if (!isLoggedIn) navigate('/');
-    if (user?.role && !['ngo_admin', 'super_admin'].includes(user.role)) navigate('/');
-  }, [isLoggedIn, user]);
+    if (!isLoggedIn) {
+      navigate('/');
+      return;
+    }
+    // Only redirect after user object is actually populated
+    if (user?.role && !['ngo_admin', 'super_admin'].includes(user.role)) {
+      navigate('/');
+    }
+  }, [isLoggedIn, user?.role]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* fetch pending approval count for badge */
   useEffect(() => {
@@ -74,29 +84,32 @@ const NGODashboard = () => {
       : n
   );
 
-  /* page meta */
   const meta = PAGE_META[activePage] || PAGE_META.overview;
 
-  /* navigate to attendance with a specific mission */
+  /* navigate to attendance with a specific mission pre-selected */
   const openAttendance = (missionId) => {
     setAttendMissionId(missionId);
     setActivePage('attendance');
   };
 
-  /* navigate to edit a mission */
+  /* navigate to edit */
   const openEdit = (missionId) => {
     setEditMissionId(missionId);
     setActivePage('create');
   };
 
-  /* when create page mounts fresh (no edit) */
+  /* navigate to create (fresh) */
   const openCreate = () => {
     setEditMissionId(null);
     setActivePage('create');
   };
 
+  /* ── FIX [2]: reset attendMissionId when navigating to Attendance ────── */
   const handleNavigate = (pageId) => {
     if (pageId === 'create') { openCreate(); return; }
+    // Reset pre-selected mission when going to Attendance via the sidebar
+    // (openAttendance() sets it explicitly when coming from a mission card)
+    if (pageId === 'attendance') setAttendMissionId(null);
     setActivePage(pageId);
   };
 
