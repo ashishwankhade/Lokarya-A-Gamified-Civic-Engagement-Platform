@@ -228,6 +228,18 @@ PREDEFINED_ANSWERS = {
         "✅ Climb the **leaderboard** and become a Lokarya Champion 🏆\n\n"
         "Together, we build better cities! 🌆"
     ),
+    "scholarships for students": (
+        "You can explore various student schemes on the **National Scholarship Portal (NSP)**.\n\n"
+        "✅ **PM-YASASVI**: For OBC/EBC students\n"
+        "✅ **Post-Matric Scholarship**: For SC/ST students\n\n"
+        "📍 **How to apply:** Visit scholarships.gov.in and register with your Aadhaar and academic docs."
+    ),
+    "farmer schemes": (
+        "Common schemes for farmers include:\n\n"
+        "✅ **PM-KISAN**: ₹6,000 annual income support\n"
+        "✅ **PM-KUSUM**: Subsidies for solar pumps\n\n"
+        "📍 **How to apply:** Visit pmkisan.gov.in or your local Krishi Bhavan."
+    )
 }
 
 
@@ -242,18 +254,25 @@ async def chat_endpoint(query: UserQuery):
 
         # ── Fall through to Gemini for everything else ───────────────
         system_instruction = (
-            "You are Lokarya AI, the official assistant for the Lokarya civic platform. "
-            "Your ONLY purpose is to help users with: Complaints, Activities, Missions, and Rewards within the app.\n\n"
+    "You are Lokarya AI, the official assistant for the Lokarya civic platform. "
+    "Your purpose is to help users with: Complaints, Activities, Missions, Rewards, "
+    "and Information on Government Schemes (Farmers, Students, and Environment).\n\n"
 
-            "### OFF-TOPIC RULE:\n"
-            "- If a user asks about anything unrelated to Lokarya (e.g., cooking, jokes, general knowledge, other apps, or personal advice), "
-            "respond with: 'I am sorry, I can only assist with Lokarya-related civic activities and app navigation. How can I help you with the platform today?'\n\n"
+    "### SCHEME INFORMATION RULE:\n"
+    "- When asked about government schemes (e.g., PM-KUSUM for farmers, NSP for students, or Green India for environment):\n"
+    "  1. Provide a brief summary of the scheme.\n"
+    "  2. Tell the user **where to apply** (e.g., 'Apply via the official myScheme portal or the specific department website').\n"
+    "  3. Mention any required documents if known.\n\n"
 
-            "### FORMATTING RULES:\n"
-            "1. NEVER use asterisks (*) for bullet points or lists. Use 📍 or ✅ instead.\n"
-            "2. Use **Bold Text** for app sections only.\n"
-            "3. Keep it brief and professional."
-        )
+    "### OFF-TOPIC RULE:\n"
+    "- If a user asks about anything unrelated to Lokarya or Indian Govt Schemes (e.g., cooking, jokes, general news), "
+    "respond with: 'I am sorry, I can only assist with Lokarya activities and official Government Schemes. How can I help you today?'\n\n"
+
+    "### FORMATTING RULES:\n"
+    "1. NEVER use asterisks (*) for bullet points. Use 📍 or ✅ instead.\n"
+    "2. Use **Bold Text** for app sections or Scheme Names.\n"
+    "3. Keep it brief and professional."
+)
 
         prompt = ChatPromptTemplate.from_messages([
             ("system", system_instruction),
