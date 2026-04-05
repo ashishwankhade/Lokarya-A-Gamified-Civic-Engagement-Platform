@@ -11,9 +11,14 @@
  *  [6] mounted flag in jsQR import — no StrictMode double-mount leak
  *  [7] reset() cancels RAF before restarting — no double-decode
  *  [8] GPS-denied warning banner shown during scanning phase
- *  [9] Scan throttle — jsQR runs at ~3fps not 60fps, saves battery
+ *  [9] Scan throttle — lastRunRef (useRef) replaces tick._lastRun mutation, ~3fps saves battery
  *  [10] already_scanned subtitle clarified with XP info
  *  [11] Torch toggle button when device supports it
+ *  [12] FIXED: Removed non-existent Flashlight import (was crashing entire page)
+ *  [13] FIXED: stopCamera moved above useEffect that references it (was ReferenceError on unmount)
+ *  [14] FIXED: tick throttle uses useRef instead of function property mutation
+ *  [15] FIXED: stopCamera wrapped in useCallback so useEffect dep is stable
+ *  [16] FIXED: GPS re-fetched on every startScan so retry gets fresh coords
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -21,7 +26,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   QrCode, ScanLine, MapPin, CheckCircle, AlertTriangle,
   XCircle, Loader2, Camera, CameraOff, Zap, ArrowRight,
-  RotateCcw, ShieldCheck, Navigation, Clock, Lock, Flashlight,
+  RotateCcw, ShieldCheck, Navigation, Clock, Lock,
 } from 'lucide-react';
 import api       from '../api/axios';
 import { toast } from 'react-toastify';
@@ -45,8 +50,8 @@ const getGpsPosition = () =>
 
 /* ── FIX [1]: Extract correct payload ──────────────────────────────
    QR may encode:
-     A) Raw JWT string         → send as-is
-     B) JSON { payload: "..." } → unwrap .payload
+     A) Raw base64 JSON string → send as-is (camera scan path)
+     B) JSON { payload: "..." } → unwrap .payload (edge case)
 ─────────────────────────────────────────────────────────────────── */
 const extractPayload = (raw) => {
   if (!raw) return null;
@@ -193,7 +198,8 @@ const CameraViewfinder = ({ videoRef, canvasRef, scanning, hasTorch, torchOn, on
       </span>
     </div>
 
-    {/* FIX [11]: torch toggle — only shown when device supports it */}
+    {/* FIX [11]: torch toggle — only shown when device supports it
+        FIX [12]: uses Zap icon (Flashlight doesn't exist in lucide-react) */}
     {hasTorch && (
       <button onClick={onToggleTorch}
         style={{ position: 'absolute', top: 14, right: 14,
@@ -241,18 +247,32 @@ const QrScanPage = () => {
   const [manualPayload, setManual]    = useState('');
   const [useManual,     setUseManual] = useState(false);
   const [result,        setResult]    = useState(null);
-  const [hasTorch,      setHasTorch]  = useState(false);  // FIX [11]
-  const [torchOn,       setTorchOn]   = useState(false);  // FIX [11]
+  const [hasTorch,      setHasTorch]  = useState(false);
+  const [torchOn,       setTorchOn]   = useState(false);
 
   const videoRef      = useRef(null);
   const canvasRef     = useRef(null);
   const streamRef     = useRef(null);
   const rafRef        = useRef(null);
   const jsQrRef       = useRef(null);
-  const torchTrackRef = useRef(null);                      // FIX [11]
+  const torchTrackRef = useRef(null);
 
   /* FIX [4]: keep a ref that tick() can always read without stale closure */
   const gpsCoordsRef = useRef(null);
+
+  /* FIX [14]: useRef for throttle timestamp — replaces tick._lastRun mutation */
+  const lastRunRef = useRef(0);
+
+  /* FIX [13] + [15]: stopCamera defined BEFORE the useEffect that references it,
+     and wrapped in useCallback so the useEffect dep array is stable             */
+  const stopCamera = useCallback(() => {
+    if (rafRef.current)    cancelAnimationFrame(rafRef.current);
+    rafRef.current = null;
+    if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
+    streamRef.current     = null;
+    torchTrackRef.current = null;
+    setTorchOn(false);
+  }, []);
 
   /* FIX [6]: mounted flag prevents StrictMode double-mount leak */
   useEffect(() => {
@@ -261,60 +281,21 @@ const QrScanPage = () => {
       .then(m  => { if (mounted) jsQrRef.current = m.default || m; })
       .catch(() => { if (mounted) setUseManual(true); });
     return () => { mounted = false; stopCamera(); };
-  }, []);
+  }, [stopCamera]);
 
-  /* GPS — update both state AND ref */
+  /* Initial silent GPS fetch on mount (best-effort; startScan re-fetches too) */
   useEffect(() => {
     (async () => {
       const pos = await getGpsPosition();
       if (pos) {
         setGpsCoords(pos);
-        gpsCoordsRef.current = pos;   // FIX [4]
+        gpsCoordsRef.current = pos;
         setGpsState('granted');
       } else {
         setGpsState('denied');
       }
     })();
   }, []);
-
-  const stopCamera = () => {
-    if (rafRef.current)    cancelAnimationFrame(rafRef.current);
-    rafRef.current = null;
-    if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
-    streamRef.current  = null;
-    torchTrackRef.current = null;
-    setTorchOn(false);
-  };
-
-  const startScan = useCallback(async () => {
-    if (useManual) { setPhase('scanning'); return; }
-    setPhase('scanning');
-    setCameraErr(null);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 1280 } },
-      });
-      streamRef.current = stream;
-
-      /* FIX [11]: detect torch capability */
-      const track = stream.getVideoTracks()[0];
-      const caps  = track?.getCapabilities?.() || {};
-      if (caps.torch) {
-        setHasTorch(true);
-        torchTrackRef.current = track;
-      }
-
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
-        rafRef.current = requestAnimationFrame(tick);
-      }
-    } catch (err) {
-      setCameraErr(err.message || 'Camera access denied');
-      setUseManual(true);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [useManual]);
 
   /* FIX [11]: torch toggle handler */
   const handleToggleTorch = useCallback(() => {
@@ -341,13 +322,13 @@ const QrScanPage = () => {
       return;
     }
 
-    /* FIX [9]: throttle to ~3 fps — jsQR is expensive */
+    /* FIX [9] + [14]: throttle to ~3 fps using a ref, not function property */
     const now = Date.now();
-    if (now - (tick._lastRun || 0) < 350) {
+    if (now - lastRunRef.current < 350) {
       rafRef.current = requestAnimationFrame(tick);
       return;
     }
-    tick._lastRun = now;
+    lastRunRef.current = now;
 
     /* FIX [2]: willReadFrequently removes the getImageData browser warning */
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -368,21 +349,64 @@ const QrScanPage = () => {
 
     if (code?.data) {
       stopCamera();
-      if (isDev) console.log('[QrScan] jsQR raw decode:', code.data); // FIX [3]
+      if (isDev) console.log('[QrScan] jsQR raw decode:', code.data);
       submitScan(code.data);
       return;
     }
 
     rafRef.current = requestAnimationFrame(tick);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [stopCamera]);
+
+  /* FIX [16]: GPS re-fetched on every startScan so retry always gets fresh coords */
+  const startScan = useCallback(async () => {
+    if (useManual) { setPhase('scanning'); return; }
+    setPhase('scanning');
+    setCameraErr(null);
+
+    /* Re-fetch GPS every time — don't rely on mount-time value for retries */
+    setGpsState('requesting');
+    getGpsPosition().then(pos => {
+      if (pos) {
+        setGpsCoords(pos);
+        gpsCoordsRef.current = pos;
+        setGpsState('granted');
+      } else {
+        setGpsState('denied');
+      }
+    });
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 1280 } },
+      });
+      streamRef.current = stream;
+
+      /* FIX [11]: detect torch capability */
+      const track = stream.getVideoTracks()[0];
+      const caps  = track?.getCapabilities?.() || {};
+      if (caps.torch) {
+        setHasTorch(true);
+        torchTrackRef.current = track;
+      }
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play();
+        rafRef.current = requestAnimationFrame(tick);
+      }
+    } catch (err) {
+      setCameraErr(err.message || 'Camera access denied');
+      setUseManual(true);
+    }
+  }, [useManual, tick]);
 
   const submitScan = async (rawScanned) => {
     setPhase('submitting');
 
     /* FIX [1]: extract correct payload */
     const payload = extractPayload(rawScanned);
-    if (isDev) console.log('[QrScan] extracted payload:', payload); // FIX [3]
+    if (isDev) console.log('[QrScan] extracted payload:', payload);
 
     if (!payload) {
       setResult({ type: 'error', subtitle: 'Could not read QR code content. Please try again.' });
@@ -397,7 +421,7 @@ const QrScanPage = () => {
       const coords = gpsCoordsRef.current;
       if (coords) { body.userLat = coords.lat; body.userLng = coords.lng; }
 
-      if (isDev) console.log('[QrScan] POST body:', { payload: body.payload?.slice(0, 40) + '…', hasGps: !!coords }); // FIX [3]: no coords in log
+      if (isDev) console.log('[QrScan] POST body:', { payload: body.payload?.slice(0, 40) + '…', hasGps: !!coords });
 
       const { data } = await api.post('/activities/scan-qr', body);
 
@@ -415,14 +439,14 @@ const QrScanPage = () => {
     } catch (err) {
       const status  = err.response?.status;
       const message = err.response?.data?.message || '';
-      if (isDev) console.error('[QrScan] error response:', status, message); // FIX [3]
+      if (isDev) console.error('[QrScan] error response:', status, message);
 
       if (status === 409) {
         setResult({
           type:     'already_scanned',
           subtitle: err.response?.data?.scannedAt
             ? `Already scanned at ${new Date(err.response.data.scannedAt).toLocaleTimeString('en-IN')}. XP will be credited when the organiser closes the event.`
-            : undefined, // falls back to RESULT_CONFIGS subtitle
+            : undefined,
         });
       } else if (status === 403 && message.toLowerCase().includes('not registered')) {
         setResult({ type: 'not_registered' });

@@ -12,6 +12,9 @@
  *   expiresAt  : ISO string,
  *   issuedAt   : ISO string,
  * }
+ *
+ * No changes needed — this file was correct as supplied.
+ * Included here for completeness alongside the updated QrScanPage.jsx.
  */
 
 import crypto from 'crypto';
@@ -63,8 +66,8 @@ export const generateQrData = async (activityId, venueLat, venueLng, eventDate) 
 
 /**
  * verifyQrPayload
- * FIX: now returns `token` in the success result so activityController
- *      can compare qrResult.token === activity.qr.token
+ * Returns token in success result so activityController can compare
+ * qrResult.token === activity.qr.token
  */
 export const verifyQrPayload = (rawPayload) => {
   try {
@@ -94,8 +97,6 @@ export const verifyQrPayload = (rawPayload) => {
       return { valid: false, error: 'Invalid QR signature. Possible tampering.' };
     }
 
-    // FIX: include token in return so controller can do:
-    //      activity.qr.token !== qrResult.token
     return { valid: true, activityId, token, venueLat, venueLng, expiresAt };
 
   } catch (err) {
